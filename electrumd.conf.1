@@ -1,0 +1,93 @@
+.TH ELECTRUMD 5 "October 2023" "Electrumd" "Electrumd"
+.SH NAME
+electrumd \- Configuration file for electrumd, the tiny Electrum server
+.SH DESCRIPTION
+This manual page documents the configuration file for
+.IR electrumd ,
+a lightweight Electrum server. This file specifies various parameters for
+.IR electrumd
+to function, including logging, Bitcoin daemon RPC settings, and network configurations.
+.SH OPTIONS
+The configuration file supports the following options:
+.TP
+.B log_file_path
+Path to the log file where
+.IR electrumd
+will write its log output. If this option is specified, logging will be directed to the specified file.
+.TP
+.B bitcoind_rpc_cookie_file
+Path to the Bitcoin daemon RPC cookie file used for authentication.
+.TP
+.B bitcoind_rpc_auth
+Bitcoin daemon RPC user and password in the format
+.user:password
+. This option is mutually exclusive with
+.B bitcoind_rpc_cookie_file
+and at least one authentication method is mandatory.
+.TP
+.B bitcoind_rpc_host
+The default bind address and port of the Bitcoin daemon RPC. The default value is
+.IR localhost:8332 .
+.TP
+.B electrumd_rpc_bind
+The bind address on which
+.IR electrumd
+listens for incoming connections. The default value is
+.IR localhost .
+.TP
+.B electrumd_rpc_port
+The bind port on which
+.IR electrumd
+listens for incoming connections. The default value is
+.IR 50001 .
+.TP
+.B bitcoind_p2p_addr
+The P2P address of the Bitcoin daemon. This option is commented out by default.
+.TP
+.B bitcoind_p2p_port
+The P2P port of the Bitcoin daemon. This option is commented out by default.
+.TP
+.B blocks_cache_max
+The maximum RAM cache for fetched blocks before flushing to disk, specified in bytes. The default value is
+.IR 4096
+bytes.
+.TP
+.B db_dir
+The directory where the database files are stored. This option specifies the path to the database directory.
+.SH EXAMPLE
+An example configuration file might look like this:
+.sp
+.ft B
+# This file is an example configuration for electrumd (the tiny electrum
+# server)
+#
+# If specified electrumd will log to file
+log_file_path=tests/test_data/testdbdir/test.log
+#
+# The path to the Bitcoin daemon rpc cookie file
+bitcoind_rpc_cookie_file=tests/test_data/bitcoin/regtest/.cookie
+#
+# Bitcoin daemon rpc user and password. Note: the cookie file and password
+# options are mutually exclusive and at least one auth method is mandatory
+# bitcoind_rpc_auth=
+#
+# The default bind address and port of Bitcoin daemon rpc. Default is localhost:8332
+bitcoind_rpc_host=127.0.0.1:18443
+#
+# The bind address on which electrumd listens for incoming connections. Default is localhost
+electrumd_rpc_bind=0.0.0.0
+#
+# The bind port on which electrumd listens to
+electrumd_rpc_port=60401
+#
+# Bitcoind p2p port address and port
+# bitcoind_p2p_addr=127.0.0.1
+# bitcoind_p2p_port=8321
+#
+# The maximum ram cache for fetched blocks before flushing to disk in bytes. Default is 4096 bytes.
+blocks_cache_max=40
+db_dir=tests/test_data/testdbdir
+.ft
+.sp
+.SH SEE ALSO
+.IR electrumd (1)

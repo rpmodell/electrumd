@@ -1,0 +1,56 @@
+.TH ELECTRUMD 1 "October 2023" "Electrumd" "Electrumd"
+.SH NAME
+electrumd \- A lightweight Electrum server
+.SH SYNOPSIS
+.B electrumd
+[\-c
+.I config_file
+][\-l
+.I log_level
+][\-d]
+.SH DESCRIPTION
+.IR electrumd
+is a lightweight Electrum server that provides a simple and efficient way to run your own Electrum node. It offers various options to configure its behavior and operation.
+.SH OPTIONS
+.TP
+.B \-c
+.I config_file
+Specifies the path to the configuration file. The default path is
+.IR /usr/local/etc/electrumd.conf .
+.TP
+.B \-l
+.I log_level
+Sets the log level for
+.IR electrumd
+. The log level can be one of the following: debug, info, or error.
+.TP
+.B \-d
+Detaches the process and runs
+.IR electrumd
+as a daemon in the background.
+.SH EXAMPLES
+.Start
+.IR electrumd
+with default configuration and log level:
+.sp
+.ft B
+electrumd
+.ft
+.sp
+.Start
+.IR electrumd
+with a custom configuration file and log level set to debug:
+.sp
+.ft B
+electrumd -c /path/to/custom.conf -l debug
+.ft
+.sp
+.Start
+.IR electrumd
+as a daemon with default configuration:
+.sp
+.ft B
+electrumd -d
+.ft
+.SH SEE ALSO
+.IR electrumd.conf (5)
