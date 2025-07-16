@@ -1,0 +1,9 @@
+*.log
+*.dat
+*.conf.test
+*.pid
+*.db
+*.pro.*
+*.pro
+*.o
+electrumd

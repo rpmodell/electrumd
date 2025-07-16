@@ -1,0 +1,7 @@
+*.dat
+*.log
+*.txt
+testdeps/
+test_data/
+.idea/
+__pycache__/

@@ -112,7 +112,6 @@ void *btc_sync_thread_func(void *o)
     return NULL;
 }
 
-#if 1
 int main(int argc, char **argv)
 {
     char confing_path[512];
@@ -225,7 +224,7 @@ int main(int argc, char **argv)
     //compare status with bitcoind blockhaight to check if an initial sync round is needed
     // move the code to skip genesis block in block_sync and block_sync2
     TXDB txdb;
-    if (txdb_open(&txdb, configs.db_dir, configs.cache_size, IS_MAINNET(rpc_ctx.chain) ? 0 : -1)) {
+    if (txdb_open(&txdb, configs.db_dir, configs.cache_size, -1)) {
         logerrf("txdb: error opening db");
         return EXIT_FAILURE;
     }
@@ -299,30 +298,3 @@ shutdown:
 
     remove(PID_FILE_PATH);
 }
-#else
-#include <assert.h>
-int main(int argc, char **argv)
-{
-    MDB_env *env;
-    MDB_txn *txn;
-    MDB_dbi db1, db2;
-    fprintf(stderr, "mdb_env_create(&env);->%s\n", mdb_strerror(mdb_env_create(&env)));
-    fprintf(stderr, "mdb_env_set_maxdbs(&env);->%s\n", mdb_strerror(mdb_env_set_maxdbs(env, 2)));
-    fprintf(stderr, "mdb_env_open(&env);->%s\n", mdb_strerror(mdb_env_open(env, "newdb", 0, 0664)));
-    fprintf(stderr, "mdb_txn_begin(&env);->%s\n", mdb_strerror(mdb_txn_begin(env, NULL, 0, &txn)));
-    fprintf(stderr, "mdb_dbi_open(1);->%s\n", mdb_strerror(mdb_dbi_open(txn, "db1", MDB_CREATE, &db1)));
-    fprintf(stderr, "mdb_dbi_open(2);->%s\n", mdb_strerror(mdb_dbi_open(txn, "db2", MDB_CREATE, &db2)));
-    fprintf(stderr, "mdb_txn_commit(&txn);->%s\n", mdb_strerror(mdb_txn_commit(txn)));
-
-    MDB_val k, v;
-    k.mv_data = "DIOCANE";
-    k.mv_size = 7;
-    v.mv_data = "DIO_PORCO";
-    v.mv_size = 9;
-    fprintf(stderr, "mdb_txn_begin(&env);->%s\n", mdb_strerror(mdb_txn_begin(env, NULL, 0, &txn)));
-    fprintf(stderr, "mdb_dbi_open(2);->%s\n", mdb_strerror(mdb_put(txn, db2, &k, &v, 0)));
-    fprintf(stderr, "mdb_dbi_open(2);->%s\n", mdb_strerror(mdb_put(txn, db1, &k, &v, 0)));
-    fprintf(stderr, "mdb_txn_commit(&txn);->%s\n", mdb_strerror(mdb_txn_commit(txn)));
-    mdb_env_close(env);
-}
-#endif

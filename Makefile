@@ -1,7 +1,7 @@
 CC = cc
 CFLAGS = -g -O0 -Wall -pedantic -I/usr/include/db5.3/
 
-LDFLAGS = -lcurl -lpthread -ldb-5.3 -lcrypto -lm -lz
+LDFLAGS = -lcurl -lpthread -ldb-5.3 -lcrypto -lm
 vpath src/
 
 VPATH=src/
