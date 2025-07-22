@@ -129,7 +129,7 @@ int curl_core_rpc_req(BitcoinRpcCtx *ctx, const char *method, jsonobj *args, jso
 	}
 
 	assert(id2->type == STRING);
-	if (strcmp(id2->string_value, id)) {
+    if (strcmp(id2->e.string_value, id)) {
 		ret = -5;
 		goto rpc_end;
 	}
@@ -138,10 +138,10 @@ int curl_core_rpc_req(BitcoinRpcCtx *ctx, const char *method, jsonobj *args, jso
 	if (obj && obj->type != JSON_NULL) {
 		jsonobj *e = jsonobj_lookup(obj, "code");
 		if (e)
-			ret = e->int_value;
+            ret = e->e.int_value;
         const char *msg = jsonrpc_strerror(ret);
 		if ((e = jsonobj_lookup(obj, "message")))
-			msg = e->string_value;
+            msg = e->e.string_value;
 		logerrf("bitcoin daemon rpc response error: code=%d, msg=%s", ret, msg); 
 		goto rpc_end;
 	} 
@@ -167,8 +167,8 @@ int bitcoin_rpc_init(BitcoinRpcCtx *ctx, const char *host, const char *auth)
     if (!host || !auth)
         return -1;
 
-    ctx->rpchost = host;
-    ctx->userpw = auth;
+    ctx->rpchost = (char*) host;
+    ctx->userpw = (char*) auth;
 
     if (getnetworkinfo(ctx, &ctx->network_info))
         return -2;
@@ -217,7 +217,7 @@ int getblockchaininfo(BitcoinRpcCtx *ctx, char *chain)
         goto getblockchaininfo_end;
     }
 
-    strncpy(chain, e->string_value, 9);
+    strncpy(chain, e->e.string_value, 9);
 
 getblockchaininfo_end:
     jsonobj_free(result);
@@ -284,25 +284,25 @@ int getnetworkinfo(BitcoinRpcCtx *ctx, BitcoindNetworkInfo *info)
     if ((ret = (e == NULL)))
         goto getnetworkinfo_end;
 
-    info->version = e->int_value;
+    info->version = e->e.int_value;
 
     e = jsonobj_lookup(result, "subversion");
     if ((ret = (e == NULL)))
         goto getnetworkinfo_end;
 
-    strcpy(info->subversion, e->string_value);
+    strcpy(info->subversion, e->e.string_value);
 
     e = jsonobj_lookup(result, "protocolversion");
     if ((ret = (e == NULL)))
         goto getnetworkinfo_end;
 
-    info->protocolversion = e->int_value;
+    info->protocolversion = e->e.int_value;
 
     e = jsonobj_lookup(result, "relayfee");
     if ((ret = (e == NULL)))
         goto getnetworkinfo_end;
 
-    info->relayfee = e->double_value;
+    info->relayfee = e->e.double_value;
 
 getnetworkinfo_end:
     jsonobj_free(result);
@@ -328,7 +328,7 @@ int getblockcount(BitcoinRpcCtx *ctx, long *height)
 		goto getblockcount_end;
 
     assert(result->type == INT);
-	(*height) = result->int_value;
+    (*height) = result->e.int_value;
 
 getblockcount_end:
 	jsonobj_free(result);
@@ -359,7 +359,7 @@ int getblockhash(BitcoinRpcCtx *ctx, long blkno, char *hash)
 
 	assert(result->type == STRING);
 
-	strcpy(hash, result->string_value);
+    strcpy(hash, result->e.string_value);
 
 getblockhash_end:
 	jsonobj_free(result);
@@ -390,7 +390,7 @@ int getblockheader(BitcoinRpcCtx *ctx, const char *blkhash, uint8_t *header)
 
 	assert(result->type == STRING);
 
-    hex_to_bytes(result->string_value, header);
+    hex_to_bytes(result->e.string_value, header);
 
 getblockheader_end:
 	jsonobj_free(result);
@@ -423,7 +423,7 @@ int getrawblock(BitcoinRpcCtx *ctx, const char *blkhash, uint8_t **rawblock)
 
 	assert(result->type == STRING);
 
-	char *blockhex = result->string_value;
+    char *blockhex = result->e.string_value;
     (*rawblock) = (uint8_t*) malloc(strlen(blockhex) / 2 * sizeof(char));
 	ret = hex_to_bytes(blockhex, *rawblock);
 
@@ -450,7 +450,7 @@ int getrawtransaction(BitcoinRpcCtx *ctx, const char *txid, uint8_t **rawtx)
 
 	assert(result->type == STRING);
 
-	char *txhex = result->string_value;
+    char *txhex = result->e.string_value;
     (*rawtx) = (uint8_t*) malloc(strlen(txhex) / 2 * sizeof(uint8_t));
 	ret = hex_to_bytes(txhex, *rawtx);
 
@@ -500,7 +500,7 @@ int getrawmempool(BitcoinRpcCtx *ctx, HashesVec *new_txs_hashes)
     long pos = 0;
     JSONOBJ_FOREACH(result, e) {
         pos = hashes_vec_add(new_txs_hashes, NULL);
-        reverse_hex_to_bytes(e->string_value, new_txs_hashes->v[pos]);
+        reverse_hex_to_bytes(e->e.string_value, new_txs_hashes->v[pos]);
 	}
 
 getrawmempool_end:
@@ -538,7 +538,7 @@ int getmempoolentry(BitcoinRpcCtx *ctx, char *txid_str, struct mempool_entry *mp
         goto getmempoolentry_end;
     }
 
-    mpe->vsize = (size_t) e->int_value;
+    mpe->vsize = (size_t) e->e.int_value;
 
     e = jsonobj_lookup(result, "fees");
     if ((ret = (e == NULL))) {
@@ -550,28 +550,28 @@ int getmempoolentry(BitcoinRpcCtx *ctx, char *txid_str, struct mempool_entry *mp
         goto getmempoolentry_end;
     }
 
-    mpe->fee_base = ef->double_value;
+    mpe->fee_base = ef->e.double_value;
 
     ef = jsonobj_lookup(e, "modified");
     if ((ret = (ef == NULL))) {
         goto getmempoolentry_end;
     }
 
-    mpe->fee_mod = ef->double_value;
+    mpe->fee_mod = ef->e.double_value;
 
     ef = jsonobj_lookup(e, "ancestor");
     if ((ret = (ef == NULL))) {
         goto getmempoolentry_end;
     }
 
-    mpe->fee_ancestor = ef->double_value;
+    mpe->fee_ancestor = ef->e.double_value;
 
     ef = jsonobj_lookup(e, "descendant");
     if ((ret = (ef == NULL))) {
         goto getmempoolentry_end;
     }
 
-    mpe->fee_descendant = ef->double_value;
+    mpe->fee_descendant = ef->e.double_value;
 
 getmempoolentry_end:
     jsonobj_free(result);
@@ -600,7 +600,7 @@ int sendrawtransaction(BitcoinRpcCtx *ctx, const char *rawtx, double feerate, ch
 
     assert(result->type == STRING);
 
-    strcpy(txhash, result->string_value);
+    strcpy(txhash, result->e.string_value);
 
 sendrawtransaction_end:
     jsonobj_free(result);
@@ -639,7 +639,7 @@ double estimatesmartfee(BitcoinRpcCtx *ctx, int conf_target)
 
     jsonobj *e = jsonobj_lookup(result, "feerate");
     if (e)
-        feerate = e->double_value;
+        feerate = e->e.double_value;
 
 estimatesmartfee_end:
     jsonobj_free(result);

@@ -1,5 +1,5 @@
 CC = cc
-CFLAGS = -g -O0 -Wall -pedantic -I/usr/include/db5.3/
+CFLAGS = -g -std=c99 -D_DEFAULT_SOURCE -O0 -Wall -pedantic -I/usr/include/db5.3/
 
 LDFLAGS = -lcurl -lpthread -ldb-5.3 -lcrypto -lm
 vpath src/

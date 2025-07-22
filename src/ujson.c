@@ -93,10 +93,10 @@ jsonobj *jsonobj_new()
 	e->child = NULL;
 	e->parent = NULL;
 	e->type = JSON_NULL;
-	e->bool_value = 0;
-	e->int_value = 0;
-	e->double_value = 0.0;
-	e->string_value = NULL;
+    e->e.bool_value = 0;
+    e->e.int_value = 0;
+    e->e.double_value = 0.0;
+    e->e.string_value = NULL;
 	return e;
 }
 
@@ -107,7 +107,7 @@ void jsonobj_free(jsonobj *head)
     jsonobj *e = NULL, *o = NULL;
     switch (head->type) {
     case STRING:
-        free(head->string_value);
+        free(head->e.string_value);
         break;
     case LIST:
     case JSON_OBJ:
@@ -228,13 +228,13 @@ static int parse_buff(jsonobj *element, char **buf)
 	}
 	case '"': {
 		element->type = STRING;
-		element->string_value = parse_quoted_str(buf);
-		return !element->string_value;
+        element->e.string_value = parse_quoted_str(buf);
+        return !element->e.string_value;
 	}
 	case 't': {
 		if (!strncmp(*buf, "true", 4)) {
 			element->type = BOOL;
-			element->bool_value = 1;
+            element->e.bool_value = 1;
 			(*buf) += 4;
 			return 0;
 		}
@@ -244,7 +244,7 @@ static int parse_buff(jsonobj *element, char **buf)
 	case 'f': {
 		if (!strncmp(*buf, "false", 5)) {
 			element->type = BOOL;
-			element->bool_value = 0;
+            element->e.bool_value = 0;
 			(*buf) += 5;
 			return 0;
 		}
@@ -268,10 +268,10 @@ static int parse_buff(jsonobj *element, char **buf)
 
         // add exponential notation
         if (strchr(numbuf, '.')) {
-            element->double_value = atof(numbuf);
+            element->e.double_value = atof(numbuf);
             element->type = DOUBLE;
         } else {
-            element->int_value = atol(numbuf);
+            element->e.int_value = atol(numbuf);
             element->type = INT;
         }
 
@@ -300,7 +300,7 @@ char *jsonobj_to_str(jsonobj *head)
 	int str_capacity = 1;
 	switch (t) {
 	case STRING:
-		str_capacity += strlen(head->string_value) + 2;
+        str_capacity += strlen(head->e.string_value) + 2;
 		break;
 	case INT:
 	case DOUBLE:
@@ -319,16 +319,16 @@ char *jsonobj_to_str(jsonobj *head)
     memset(str, '\0', str_capacity);
 	switch (t) {
 	case STRING:
-		sprintf(str, "\"%s\"", head->string_value);
+        sprintf(str, "\"%s\"", head->e.string_value);
 		break;
 	case BOOL:
-		sprintf(str, "%s", head->bool_value ? "true" : "false");
+        sprintf(str, "%s", head->e.bool_value ? "true" : "false");
 		break;
 	case INT:
-		sprintf(str, "%ld", head->int_value);
+        sprintf(str, "%ld", head->e.int_value);
 		break;
 	case DOUBLE:
-		sprintf(str, "%f", head->double_value);
+        sprintf(str, "%f", head->e.double_value);
 		break;
 	case LIST:
 		sprintf(str, "[");
@@ -373,7 +373,7 @@ char *jsonobj_to_str(jsonobj *head)
 void jsonobj_set_str(jsonobj *e, const char *str)
 {
     e->type = STRING;
-    e->string_value = str_clone(str);
+    e->e.string_value = str_clone(str);
 }
 
 jsonobj *jsonobj_put(jsonobj *parent, const char *key, jsonobj *e)
@@ -416,7 +416,7 @@ jsonobj *jsonobj_put_int(jsonobj *parent, const char *key, long n)
 	jsonobj *e = jsonobj_new();
 	e->type = INT;
 	e->key = str_clone(key);
-	e->int_value = n;
+    e->e.int_value = n;
 	put(parent, e);
 	return e;
 }
@@ -425,7 +425,7 @@ jsonobj *jsonobj_put_double(jsonobj *parent, const char *key, double d)
 	jsonobj *e = jsonobj_new();
 	e->type = DOUBLE;
 	e->key = str_clone(key);
-	e->double_value = d;
+    e->e.double_value = d;
 	put(parent, e);
 	return e;
 }
@@ -435,7 +435,7 @@ jsonobj *jsonobj_put_bool(jsonobj *parent, const char *key, int b)
 	jsonobj *e = jsonobj_new();
 	e->type = BOOL;
 	e->key = str_clone(key);
-	e->bool_value = b;
+    e->e.bool_value = b;
 	put(parent, e);
 	return e;
 }
@@ -444,7 +444,7 @@ jsonobj *jsonobj_put_str(jsonobj *parent, const char *key, const char *str)
 {
 	jsonobj *e = jsonobj_new();
     e->type = STRING;
-    e->string_value = str_clone(str);
+    e->e.string_value = str_clone(str);
 	e->key = str_clone(key);
 	put(parent, e);
 	return e;

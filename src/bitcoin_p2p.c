@@ -114,7 +114,7 @@ int p2p_ctx_init(BtcP2pProtoCtx *ctx, const char *addr, int port, const char *ch
     if (!addr)
         return -1;
 
-    ctx->addr = addr;
+    ctx->addr = (char*) addr;
     ctx->port = port;
     ctx->chain_magic = IS_MAINNET(chain) ? BTC_NET_MAGIC_MAIN : BTC_NET_MAGIC_TEST;
 
@@ -297,16 +297,9 @@ int p2p_wait_recv_message(BtcP2pProtoCtx *ctx, struct p2p_msg_header *header, co
         } else if (!strcmp(header->command_name, expected_command_name)) {
             return 0;
         } else {
-            ssize_t nrecv = 0;
             uint8_t *tmpbuf = malloc(header->payload_sz * sizeof(uint8_t));
             p2p_payload_recv(ctx, tmpbuf, header->payload_sz);
             free(tmpbuf);
-//            uint8_t buf[4096];
-//            while ((nrecv = recv(ctx->sock_fd, buf, header->payload_sz > 4096 ? 4096 : header->payload_sz, 0)) > 0) {
-//                header->payload_sz -= nrecv;
-//                if (header->payload_sz == 0)
-//                    break;
-//            }
         }
     }
     logdebugf("recv_first_useful_header: fail");

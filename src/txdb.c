@@ -344,7 +344,7 @@ size_t txdb_lookup_utxos(TXDB *dbptr, const uint8_t *scripthash, Utxo **utxosp, 
 	memset(&key, 0, sizeof(key));
 	memset(&data, 0, sizeof(data));
 
-    key.data = scripthash;
+    key.data = (uint8_t*) scripthash;
     key.size = 8;
 
     if ((ret = dbcp->c_get(dbcp, &key, &data, DB_SET))) {

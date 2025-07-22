@@ -172,28 +172,28 @@ sync_round_end:
     return 0;
 }
 
-static int block_locator_hashes(BitcoinRpcCtx *btc_rpc_ctx, HashesVec *loc_hashes, uint32_t top_height)
-{
-    long index, step = 1;
+//static int block_locator_hashes(BitcoinRpcCtx *btc_rpc_ctx, HashesVec *loc_hashes, uint32_t top_height)
+//{
+//    long index, step = 1;
 
-    char hashstr[65]; // hex as string 2*32 + 1
-    uint8_t hash[32];
+//    char hashstr[65]; // hex as string 2*32 + 1
+//    uint8_t hash[32];
 
-    for (index = top_height; index >= 0; index -= step) {
-        if (loc_hashes->size >= 10) {
-            step *= 2;
-        }
+//    for (index = top_height; index >= 0; index -= step) {
+//        if (loc_hashes->size >= 10) {
+//            step *= 2;
+//        }
 
-        if (getblockhash(btc_rpc_ctx, index, hashstr)) {
-            return -1;
-        }
+//        if (getblockhash(btc_rpc_ctx, index, hashstr)) {
+//            return -1;
+//        }
 
-        hex_to_bytes(hashstr, hash);
-        hashes_vec_add(loc_hashes, hash);
-    }
+//        hex_to_bytes(hashstr, hash);
+//        hashes_vec_add(loc_hashes, hash);
+//    }
 
-    return 0;
-}
+//    return 0;
+//}
 
 /*
     Gets blocks using Bitcoin P2P protocol 2x faster than jsonrpc
@@ -213,7 +213,6 @@ int prefetch_blocks2(BitcoinRpcCtx *btc_rpc_ctx, BtcP2pProtoCtx *p2p_ctx, TXDB *
 
     char hashstr[65]; // hex as string 2*32 + 1
     uint8_t hash[32];
-    uint8_t header[80];
     long last_height = -1;
 #ifndef DB_TEST_HEIGHT
     if (getblockcount(btc_rpc_ctx, &last_height)) {
@@ -347,6 +346,8 @@ int prefetch_blocks2(BitcoinRpcCtx *btc_rpc_ctx, BtcP2pProtoCtx *p2p_ctx, TXDB *
                     logerrf("block sync: error storing txs data");
                     assert(0);
                 }
+
+                btc_txs_free(txs, txns);
             }
 
             if (txdb_store_block_header(dbptr, rawblock, height)) {
@@ -356,7 +357,6 @@ int prefetch_blocks2(BitcoinRpcCtx *btc_rpc_ctx, BtcP2pProtoCtx *p2p_ctx, TXDB *
             logdebugf("stored block no=%ld", i);
 
             free(rawblock);
-            btc_txs_free(txs, txns);
             dbptr->current_height++;
         }
 
@@ -387,23 +387,4 @@ sync_round_end:
          }
     }
     return 0;
-}
-
-/*
-    Gets blocks using Bitcoin P2P protocol 2x faster than jsonrpc
-    the speed can be improved by fetching headers using p2p
-
-    Same as prefetch_blocks2 but uses "getblocks" p2p message and a block locator
-*/
-int prefetch_blocks3(BitcoinRpcCtx *btc_rpc_ctx, BtcP2pProtoCtx *p2p_ctx, TXDB *dbptr, HashesVec *new_scripthashes)
-{
-    //to be implemented needs to use the new getheaders
-    // p2p_get_headers_heashes();
-
-    // keep in mind headers message len can be up to 2000 but we can only send a getdata with max of
-    // 500 inventory hashes so we need to split our headers hashes into chunks of 500 or less
-    // also the headers start from the 2nd block so we need to retrieve the genesis header manually
-    // also change locator function to use db instead of rpc since we can hash the headers
-    // and also since the genesis header is already stored at this time there is no problem :-)
-    //can be an improvement but for now we keep with prefetch_blocks2 which seem to be reliable
 }

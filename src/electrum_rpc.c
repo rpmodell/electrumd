@@ -130,7 +130,7 @@ int blockchain_block_header(ElectrumRpcCtx *electrum_ctx, MempoolCache *mc_ptr, 
         return JSONRPC_INVALID_PARAMS;
     }
 
-    long height = height_param->int_value;
+    long height = height_param->e.int_value;
 
     uint8_t header[BLOCK_HEADER_SIZE];
     char headerstr[(BLOCK_HEADER_SIZE * 2) + 1];
@@ -174,8 +174,8 @@ int blockchain_block_headers(ElectrumRpcCtx *electrum_ctx, MempoolCache *mc_ptr,
         return JSONRPC_INVALID_PARAMS;
     }
 
-    long height = height_param->int_value;
-    long count = count_param->int_value;
+    long height = height_param->e.int_value;
+    long count = count_param->e.int_value;
 	if (count > MAX_RET_HEADERS)
 		count = MAX_RET_HEADERS;
 		
@@ -212,14 +212,14 @@ int blockchain_estimatefee(ElectrumRpcCtx *electrum_ctx, MempoolCache *mc_ptr, B
         return JSONRPC_INVALID_PARAMS;
     }
 
-    long conf_target = conf_target_param->int_value;
+    long conf_target = conf_target_param->e.int_value;
     double feerate = estimatesmartfee(btc_rpc_ctx, conf_target);
     if (feerate < 0.0) {
         response->type = INT;
-        response->int_value = -1;
+        response->e.int_value = -1;
     } else {
         response->type = DOUBLE;
-        response->double_value = feerate;
+        response->e.double_value = feerate;
     }
 
     return JSONRPC_OK;
@@ -232,7 +232,7 @@ int blockchain_relay_fee(ElectrumRpcCtx *electrum_ctx, MempoolCache *mc_ptr, Bit
     }
 
     response->type = DOUBLE;
-    response->double_value = btc_rpc_ctx->network_info.relayfee;
+    response->e.double_value = btc_rpc_ctx->network_info.relayfee;
 
     return JSONRPC_OK;
 }
@@ -245,7 +245,7 @@ int blockchain_scripthash_getbalance(ElectrumRpcCtx *electrum_ctx, MempoolCache 
     }
 
     uint8_t scripthash[32];
-    if (reverse_hex_to_bytes(scripthash_param->string_value, scripthash) != 32) {
+    if (reverse_hex_to_bytes(scripthash_param->e.string_value, scripthash) != 32) {
         return JSONRPC_INVALID_PARAMS;
     }
 
@@ -353,7 +353,7 @@ int blockchain_scripthash_gethistory(ElectrumRpcCtx *electrum_ctx, MempoolCache 
     }
 
     uint8_t scripthash[32];
-    if (reverse_hex_to_bytes(scripthash_param->string_value, scripthash) != 32) {
+    if (reverse_hex_to_bytes(scripthash_param->e.string_value, scripthash) != 32) {
         return JSONRPC_INVALID_PARAMS;
     }
 	
@@ -382,7 +382,7 @@ int blockchain_scripthash_getmempool(ElectrumRpcCtx *electrum_ctx, MempoolCache 
     }
 
     uint8_t scripthash[32];
-    if (reverse_hex_to_bytes(scripthash_param->string_value, scripthash) != 32) {
+    if (reverse_hex_to_bytes(scripthash_param->e.string_value, scripthash) != 32) {
         return JSONRPC_INVALID_PARAMS;
     }
 	
@@ -423,7 +423,7 @@ int blockchain_scripthash_listunpent(ElectrumRpcCtx *electrum_ctx, MempoolCache 
     }
 
     uint8_t scripthash[32];
-    if (reverse_hex_to_bytes(scripthash_param->string_value, scripthash) != 32) {
+    if (reverse_hex_to_bytes(scripthash_param->e.string_value, scripthash) != 32) {
         return JSONRPC_INVALID_PARAMS;
     }
 
@@ -512,7 +512,7 @@ int blockchain_scripthash_subscribe(ElectrumRpcCtx *electrum_ctx, MempoolCache *
     }
 
     uint8_t scripthash[32];
-    if (reverse_hex_to_bytes(scripthash_param->string_value, scripthash) != 32) {
+    if (reverse_hex_to_bytes(scripthash_param->e.string_value, scripthash) != 32) {
         return JSONRPC_INVALID_PARAMS;
     }
 
@@ -555,12 +555,12 @@ int blockchain_scripthash_unsubscribe(ElectrumRpcCtx *electrum_ctx, MempoolCache
     }
 
     uint8_t scripthash[32];
-    if (reverse_hex_to_bytes(scripthash_param->string_value, scripthash) != 32) {
+    if (reverse_hex_to_bytes(scripthash_param->e.string_value, scripthash) != 32) {
         return JSONRPC_INVALID_PARAMS;
     }
 
     response->type = BOOL;
-    response->bool_value = 0;
+    response->e.bool_value = 0;
 
     struct subscription *s = subscription_get(electrum_ctx, client_fd);
     if (s) {
@@ -568,7 +568,7 @@ int blockchain_scripthash_unsubscribe(ElectrumRpcCtx *electrum_ctx, MempoolCache
         if (index > -1) {
             hashes_vec_remove(&s->scriphashes, index);
 
-            response->bool_value = 1;
+            response->e.bool_value = 1;
         }
     }
 
@@ -583,7 +583,7 @@ int blockchain_transaction_broadcast(ElectrumRpcCtx *electrum_ctx, MempoolCache 
     }
 
     char txhash[65];
-    if (sendrawtransaction(btc_rpc_ctx, hex_param->string_value, -1.0, txhash)) {
+    if (sendrawtransaction(btc_rpc_ctx, hex_param->e.string_value, -1.0, txhash)) {
         return 1;
     }
 
@@ -604,13 +604,13 @@ int blockchain_transaction_get(ElectrumRpcCtx *electrum_ctx, MempoolCache *mc_pt
 
     if (verbose_param) {
         if (JSONOBJ_IS_BOOL(verbose_param)) {
-            verbose = verbose_param->bool_value;
+            verbose = verbose_param->e.bool_value;
         } else {
             return JSONRPC_INVALID_PARAMS;
         }
     }
 
-    int respo = getrawtransaction_json(btc_rpc_ctx, txid_param->string_value, verbose, response);
+    int respo = getrawtransaction_json(btc_rpc_ctx, txid_param->e.string_value, verbose, response);
     if (respo)
         logdebugf("getrawtx err: %d: %s", respo, jsonrpc_strerror(respo));
     return respo;
@@ -648,7 +648,7 @@ int blockchain_transaction_get_merkle(ElectrumRpcCtx *electrum_ctx, MempoolCache
         return JSONRPC_INVALID_PARAMS;
     }
 
-    if (reverse_hex_to_bytes(txhash_param->string_value, hash) != 32) {
+    if (reverse_hex_to_bytes(txhash_param->e.string_value, hash) != 32) {
         return JSONRPC_INVALID_PARAMS;
     }
 
@@ -658,7 +658,7 @@ int blockchain_transaction_get_merkle(ElectrumRpcCtx *electrum_ctx, MempoolCache
 
     HashesVec hashes;
     HASHES_VEC_INIT(&hashes);
-    if (txdb_lookup_txhashes_at_height(dbptr, &hashes, height_param->int_value))
+    if (txdb_lookup_txhashes_at_height(dbptr, &hashes, height_param->e.int_value))
         return JSONRPC_INTERNAL_ERROR;
 
     long tx_pos = hashes_vec_find(&hashes, hash);
@@ -676,7 +676,7 @@ int blockchain_transaction_get_merkle(ElectrumRpcCtx *electrum_ctx, MempoolCache
 
     response->type = JSON_OBJ;
     jsonobj *branches_obj = jsonobj_put_list(response, "merkle");
-    jsonobj_put_int(response, "block_height", height_param->int_value);
+    jsonobj_put_int(response, "block_height", height_param->e.int_value);
     jsonobj_put_int(response, "pos", tx_pos);
 
     long i;
@@ -728,14 +728,14 @@ int blockchain_transaction_id_from_pos(ElectrumRpcCtx *electrum_ctx, MempoolCach
         return JSONRPC_INVALID_PARAMS;
     }
     if (pos_param && JSONOBJ_IS_INT(pos_param)) {
-        pos = pos_param->int_value;
+        pos = pos_param->e.int_value;
     } else {
         return JSONRPC_INVALID_PARAMS;
     }
 
     if (merkle_param) {
         if (JSONOBJ_IS_BOOL(merkle_param)) {
-            merkle = merkle_param->bool_value;
+            merkle = merkle_param->e.bool_value;
         } else {
             return JSONRPC_INVALID_PARAMS;
         }
@@ -743,7 +743,7 @@ int blockchain_transaction_id_from_pos(ElectrumRpcCtx *electrum_ctx, MempoolCach
 
     HashesVec hashes;
     HASHES_VEC_INIT(&hashes);
-    if (txdb_lookup_txhashes_at_height(dbptr, &hashes, height_param->int_value))
+    if (txdb_lookup_txhashes_at_height(dbptr, &hashes, height_param->e.int_value))
         return JSONRPC_INTERNAL_ERROR;
 
     if (pos >= hashes.size) {
@@ -834,10 +834,10 @@ int server_version(ElectrumRpcCtx *electrum_ctx, MempoolCache *mc_ptr, BitcoinRp
     char version_str[6];
 
     if (JSONOBJ_IS_LIST(protocol_version)) {
-        client_min = protocol_version_atoi(jsonobj_list_get_at(protocol_version, 0)->string_value);
-        client_max = protocol_version_atoi(jsonobj_list_get_at(protocol_version, 1)->string_value);
+        client_min = protocol_version_atoi(jsonobj_list_get_at(protocol_version, 0)->e.string_value);
+        client_max = protocol_version_atoi(jsonobj_list_get_at(protocol_version, 1)->e.string_value);
     } else if (JSONOBJ_IS_STRING(protocol_version)) {
-        client_max = client_min = protocol_version_atoi(protocol_version->string_value);
+        client_max = client_min = protocol_version_atoi(protocol_version->e.string_value);
     } else {
         return JSONRPC_INVALID_PARAMS;
     }
@@ -1129,7 +1129,7 @@ static int handle_request(int client_fd, ElectrumRpcCtx *electrum_rpc_ctx, Mempo
             rpc_errno = JSONRPC_INVALID_REQ;
             goto send_error;
         }
-        method = e->string_value;
+        method = e->e.string_value;
 
         e = jsonobj_lookup(request, "params");
         for (i = 0; i < RPC_HANDLERS_SIZE; i++) {

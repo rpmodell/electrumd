@@ -63,7 +63,7 @@ struct _jsonobj {
         int bool_value;
         double double_value;
         char *string_value;
-    };
+    } e;
 };
 
 jsonobj *jsonobj_new();
