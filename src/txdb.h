@@ -32,8 +32,13 @@
 
 #include <stdint.h>
 #include <stddef.h>
-#include <db.h>
 #include <stdlib.h>
+
+#ifdef __FreeBSD__
+#include <db5/db.h>
+#else
+#include <db.h>
+#endif
 
 #include "util.h"
 #include "bitcoin_common.h"
