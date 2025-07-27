@@ -66,7 +66,7 @@ struct _jsonobj {
     } e;
 };
 
-jsonobj *jsonobj_new();
+jsonobj *jsonobj_new(void);
 int jsonobj_parse_str(jsonobj *element, char *str);
 void jsonobj_free(jsonobj *head);
 char *jsonobj_to_str(jsonobj *head);

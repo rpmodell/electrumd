@@ -83,7 +83,7 @@ static char *parse_quoted_str(char **buf)
     return NULL;
 }
 
-jsonobj *jsonobj_new()
+jsonobj *jsonobj_new(void)
 {
 	jsonobj *e = (jsonobj*) malloc(sizeof(*e));
 	e->size = 0;
