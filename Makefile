@@ -62,7 +62,7 @@ clean:
 
 .PHONY: install
 install:
-	install -m 0755 -D -t /usr/local/bin/ ./$(TARGET)
-	install -m 0664 -D -t /usr/local/etc/ ./etc/electrumd.conf
-	install -m 0664 -D -t /usr/local/share/man/man1/ ./electrumd.1
-	install -m 0664 -D -t /usr/local/share/man/man1/ ./electrumd.conf.1
+	install -m 0755 ./$(TARGET) /usr/local/bin/ 
+	install -m 0664 -b ./etc/electrumd.conf /usr/local/etc/
+	install -m 0664 ./electrumd.1 /usr/local/share/man/man1/
+	install -m 0664 ./electrumd.conf.1 /usr/local/share/man/man1/
