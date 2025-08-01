@@ -251,7 +251,7 @@ int main(int argc, char **argv)
         logerrf("electrumd: unable to write pid file: %s: %s", configs.pid_file_path, strerror(errno));
         return EXIT_FAILURE;
     }
-    fprintf(stderr, "%d", getpid());
+    fprintf(pid_fp, "%d", getpid());
     fclose(pid_fp);
 
     BtcP2pProtoCtx p2p_ctx;
