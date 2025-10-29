@@ -46,30 +46,11 @@
 #define ELECTRUM_PROTOCOL_MIN_NUMBER 140
 #define ELECTRUM_PROTOCOL_MAX_NUMBER 140
 
-struct subscription {
-    int subscr_mode;
-    int client_fd; //managed by poll set as -1
-    HashesVec scriphashes;
-};
+int electrum_rpc_srv_status_updated(void);
+int electrum_rpc_height_notify(TXDB *dbptr, uint32_t height);
+int electrum_rpc_new_scripthashes_notify(TXDB *dbptr, MempoolCache *mc_ptr, const HashesVec *new_scripthashes);
 
-struct ElectrumRpcCtx {
-    int srv_fd;
-    char *srv_addr;
-    int srv_port;
-    char *banner;
-    char *donation_address;
-
-    int status_update;
-
-    struct subscription subscriptions[MAX_CLIENTS];
-};
-
-typedef struct ElectrumRpcCtx ElectrumRpcCtx;
-
-int electrum_rpc_height_notify(ElectrumRpcCtx *electrum_ctx, TXDB *dbptr, uint32_t height);
-int electrum_rpc_new_scripthashes_notify(ElectrumRpcCtx *electrum_ctx, TXDB *dbptr, MempoolCache *mc_ptr, const HashesVec *new_scripthashes);
-
-int electrum_server_init(ElectrumRpcCtx *electrum_rpc_ctx, char *pub_addr, int port, char *donation_addr, char *banner);
-int electrum_server_start(ElectrumRpcCtx *electrum_rpc_ctx, MempoolCache *mcp, BitcoinRpcCtx *btc_rpc_ctx, TXDB *dbptr, const char *addr, int port);
+int electrum_server_init(char *pub_addr, int port, char *donation_addr, char *banner);
+int electrum_server_start(MempoolCache *mcp, BitcoinRpcCtx *btc_rpc_ctx, TXDB *dbptr, const char *addr, int port);
 
 #endif

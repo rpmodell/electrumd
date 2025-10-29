@@ -55,7 +55,6 @@ struct btc_sync_thread_args {
     BtcP2pProtoCtx *p2p_ctx;
     TXDB *dbptr;
     MempoolCache *mc_ptr;
-    ElectrumRpcCtx *electrum_rpc_ctx;
 };
 
 static void signal_handler(int signum)
@@ -73,7 +72,7 @@ void *btc_sync_thread_func(void *o)
     clock_t start = clock();
 
     while (electrumd_running) {
-        if (((clock() - start) % SYNC_THREAD_SECONDS) == 0 || arg->electrum_rpc_ctx->status_update) {
+        if (((clock() - start) % SYNC_THREAD_SECONDS) == 0 || electrum_rpc_srv_status_updated()) {
             long prev_height, last_height;
             prev_height = last_height = arg->dbptr->current_height;
 
@@ -97,13 +96,13 @@ void *btc_sync_thread_func(void *o)
                 }
 
                 while (prev_height < last_height)
-                    electrum_rpc_height_notify(arg->electrum_rpc_ctx, arg->dbptr, (uint32_t) ++prev_height);
+                    electrum_rpc_height_notify(arg->dbptr, (uint32_t) ++prev_height);
             }
 
             logdebugf("sync: fetch new %ld scriphashes", new_scripthashes.size);
 
             //notify for scripthash changes
-            electrum_rpc_new_scripthashes_notify(arg->electrum_rpc_ctx, arg->dbptr, arg->mc_ptr, &new_scripthashes);
+            electrum_rpc_new_scripthashes_notify(arg->dbptr, arg->mc_ptr, &new_scripthashes);
 
             hashes_vec_free(&new_scripthashes);
         }
@@ -275,19 +274,17 @@ int main(int argc, char **argv)
     mempool_cache_update(&mcp, &rpc_ctx, NULL);
 //    mempool_cache_update2(&mcp, &rpc_ctx, &p2p_ctx, NULL);
 
-    ElectrumRpcCtx server_ctx;
-    electrum_server_init(&server_ctx, "0.0.0.0", configs.electrumd_rpc_port, configs.donation_address, configs.banner);
+    electrum_server_init("0.0.0.0", configs.electrumd_rpc_port, configs.donation_address, configs.banner);
 
     struct btc_sync_thread_args sync_thread_args;
     sync_thread_args.core_rpc_ctx = &rpc_ctx;
     sync_thread_args.p2p_ctx = &p2p_ctx;
     sync_thread_args.dbptr = &txdb;
-    sync_thread_args.electrum_rpc_ctx = &server_ctx;
     sync_thread_args.mc_ptr = &mcp;
 
     pthread_create(&sync_thread, NULL, &btc_sync_thread_func, &sync_thread_args);
 
-    electrum_server_start(&server_ctx, &mcp, &rpc_ctx, &txdb, "0.0.0.0", configs.electrumd_rpc_port);
+    electrum_server_start(&mcp, &rpc_ctx, &txdb, "0.0.0.0", configs.electrumd_rpc_port);
 
     pthread_join(sync_thread, NULL);
 
