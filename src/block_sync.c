@@ -223,7 +223,7 @@ int prefetch_blocks2(BitcoinRpcCtx *btc_rpc_ctx, BtcP2pProtoCtx *p2p_ctx, TXDB *
 #endif
 
     time_t last_height_check = time(NULL);
-    while (dbptr->current_height < last_height) {
+    while (electrumd_running && dbptr->current_height < last_height) {
 #ifndef DB_TEST_HEIGHT
         if ((time(NULL) - last_height_check) >= (20 * UNIX_MINUTE)) {
             long nw_height = -1;

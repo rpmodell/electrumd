@@ -35,6 +35,8 @@
 
 #include "config.h"
 
+#define DEFAULT_LOG_PATH "/var/log/electrumd.log"
+#define DEFAULT_PID_FILE_PATH "/var/run/electrumd.pid"
 #define DEFAULT_BITCOIND_RPC_HOST "127.0.0.1:8332"
 #define DEFAULT_BITCOIND_P2P_ADDR "127.0.0.1"
 #define DEFAULT_BITCOIND_P2P_PORT 8333
@@ -59,6 +61,7 @@ static inline char *str_trim(char *str)
 void configs_init(ElectrumdConfigs *configs)
 {
     configs->log_file_path = NULL;
+    configs->pid_file_path = NULL;
 	configs->bitcoin_rpc_auth_cookie = 0;
     configs->bitcoin_rpc_host = NULL;
 	configs->bitcoin_rpc_auth = NULL;
@@ -76,6 +79,9 @@ void configs_free(ElectrumdConfigs *configs)
 {
     if (configs->log_file_path)
         free(configs->log_file_path);
+        
+    if (configs->pid_file_path)
+        free(configs->pid_file_path);
 
     if (configs->bitcoin_p2p_addr)
         free(configs->bitcoin_p2p_addr);
@@ -113,8 +119,8 @@ void configs_print(ElectrumdConfigs *configs)
     printf("}\n");
 }
 
-int configs_check(ElectrumdConfigs *configs)
-{
+int configs_check(ElectrumdConfigs *configs, int opt_daemon)
+{	
     if (!configs->bitcoin_rpc_auth) {
         return -1;
     }
@@ -125,21 +131,26 @@ int configs_check(ElectrumdConfigs *configs)
     /*
         Fill with reasonable defaults
     */
-    if (!configs->bitcoin_rpc_host) {
+    if (opt_daemon && !configs->log_file_path)
+        configs->log_file_path = str_clone(DEFAULT_LOG_PATH);
+    
+    if (!configs->pid_file_path)
+		configs->pid_file_path = str_clone(DEFAULT_PID_FILE_PATH);
+		
+    if (!configs->bitcoin_rpc_host)
         configs->bitcoin_rpc_host = str_clone(DEFAULT_BITCOIND_RPC_HOST);
-    }
-    if (!configs->bitcoin_p2p_addr) {
+    
+    if (!configs->bitcoin_p2p_addr)
         configs->bitcoin_p2p_addr = str_clone(DEFAULT_BITCOIND_P2P_ADDR);
-    }
-    if (!configs->electrumd_rpc_bind) {
+    
+    if (!configs->electrumd_rpc_bind)
         configs->electrumd_rpc_bind = str_clone(DEFAULT_ELECTRUMD_BIND);
-    }
-    if (!configs->donation_address) {
+    
+    if (!configs->donation_address)
         configs->donation_address = str_clone("");
-    }
-    if (!configs->banner) {
+    
+    if (!configs->banner)
         configs->banner = str_clone(DEFAULT_ELECTRUMD_BANNER);
-    }
 
     return 0;
 }
@@ -178,6 +189,8 @@ int configs_parse_file(ElectrumdConfigs *configs, const char *fpath)
 
             if (!strcmp(key, "log_file_path")) {
                 configs->log_file_path = str_clone(value);
+            } else if (!strcmp(key, "pid_file_path")) {
+                configs->pid_file_path = str_clone(value);
             } else if (!strcmp(key, "bitcoind_rpc_cookie_file")) {
 				configs->bitcoin_rpc_auth_cookie = 1;
                 configs->bitcoin_rpc_auth = str_clone(value);

@@ -46,8 +46,6 @@
 #include "mempool.h"
 #include "electrum_rpc.h"
 
-#define DEFAULT_LOG_PATH "/var/log/electrumd.log"
-#define PID_FILE_PATH "/var/run/electrumd.pid"
 #define SYNC_THREAD_SECONDS (30 * CLOCKS_PER_SEC)
 
 struct btc_sync_thread_args {
@@ -125,10 +123,6 @@ int main(int argc, char **argv)
     configs_init(&configs);
 
     struct stat pid_stat;
-    if (!stat(PID_FILE_PATH, &pid_stat)) {
-        logerrf("electrumd: electrumd is already running, exiting now");
-        return EXIT_FAILURE;
-    }
 
     char c = -1;
     int daemon = 0;
@@ -148,7 +142,6 @@ int main(int argc, char **argv)
                     logerrf("error: invalid logging level %s", optarg);
                     return EXIT_FAILURE;
             }
-
             break;
         case 'd':
             daemon = 1;
@@ -159,15 +152,13 @@ int main(int argc, char **argv)
         }
     }
 
-    logdebugf("electrumd: init");
-
     int err = configs_parse_file(&configs, confing_path);
     if (err) {
         logerrf("error: parsing configuration failed: %s at line %d", confing_path, err);
         return EXIT_FAILURE;
     }
 
-    switch (configs_check(&configs)) {
+    switch (configs_check(&configs, daemon)) {
     case -1:
         logerrf("error: invalid configuration detected: bitcoind_rpc_auth or bitcoind_rpc_cookie_file option is mandatory");
         configs_free(&configs);
@@ -177,10 +168,13 @@ int main(int argc, char **argv)
         configs_free(&configs);
         return EXIT_FAILURE;
     }
-
-    if (daemon && !configs.log_file_path) {
-        configs.log_file_path = str_clone(DEFAULT_LOG_PATH);
+    
+	if (!stat(configs.pid_file_path, &pid_stat)) {
+        logerrf("electrumd: electrumd is already running, exiting now");
+        return EXIT_FAILURE;
     }
+
+	
     if (configs.log_file_path) {
         if (logging_set_file(configs.log_file_path)) {
             logerrf("electrumd: cannot log to file %s: %s", configs.log_file_path, strerror(errno));
@@ -245,17 +239,19 @@ int main(int argc, char **argv)
             logerrf("electrumd: fork failed: %s", strerror(errno));
             return EXIT_FAILURE;
         case 0:
-            return EXIT_SUCCESS;
+            break;
+        default:
+			return EXIT_SUCCESS;
         }
     }
 
-//    FILE *pid_fp = fopen(PID_FILE_PATH, "w");
-//    if (!pid_fp) {
-//        logerrf("electrumd: unable to write pid file: %s: %s", PID_FILE_PATH, strerror(errno));
-//        return EXIT_FAILURE;
-//    }
-//    fprintf(stderr, "%d", getpid());
-//    fclose(pid_fp);
+    FILE *pid_fp = fopen(configs.pid_file_path, "w");
+    if (!pid_fp) {
+        logerrf("electrumd: unable to write pid file: %s: %s", configs.pid_file_path, strerror(errno));
+        return EXIT_FAILURE;
+    }
+    fprintf(pid_fp, "%d", getpid());
+    fclose(pid_fp);
 
     BtcP2pProtoCtx p2p_ctx;
     p2p_ctx_init(&p2p_ctx, configs.bitcoin_p2p_addr, configs.bitcoin_p2p_port, rpc_ctx.chain);
@@ -293,5 +289,5 @@ shutdown:
     txdb_close(&txdb);
     configs_free(&configs);
 
-    remove(PID_FILE_PATH);
+    remove(configs.pid_file_path);
 }

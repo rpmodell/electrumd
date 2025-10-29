@@ -32,6 +32,7 @@
 
 typedef struct {
     char *log_file_path;
+    char *pid_file_path;
 	int bitcoin_rpc_auth_cookie;
     char *bitcoin_rpc_auth; //can be file or user:password
     char *bitcoin_rpc_host;
@@ -46,7 +47,7 @@ typedef struct {
 } ElectrumdConfigs;
 
 void configs_init(ElectrumdConfigs *configs);
-int configs_check(ElectrumdConfigs *configs);
+int configs_check(ElectrumdConfigs *configs, int opt_daemon);
 void configs_free(ElectrumdConfigs *configs);
 void configs_print(ElectrumdConfigs *configs);
 int configs_parse_file(ElectrumdConfigs *configs, const char *fpath);
