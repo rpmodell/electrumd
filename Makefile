@@ -11,50 +11,50 @@ TARGET=electrumd
 $(TARGET): $(OBJS)
 	$(CC) $(CFLAGS) -o $@ $(OBJS) $(LDFLAGS)
 
-shared.o:
-	$(CC) $(CFLAGS) -c -o $@ $(SOURCES_DIR)/shared.c
+shared.o: $(SOURCES_DIR)/shared.c
+	$(CC) $(CFLAGS) -c -o $@ $<
 
-ujson.o:
-	$(CC) $(CFLAGS) -c -o $@ $(SOURCES_DIR)/ujson.c
+ujson.o: $(SOURCES_DIR)/ujson.c
+	$(CC) $(CFLAGS) -c -o $@ $<
 
-hashes_vec.o:
-	$(CC) $(CFLAGS) -c -o $@ $(SOURCES_DIR)/hashes_vec.c
+hashes_vec.o: $(SOURCES_DIR)/hashes_vec.c
+	$(CC) $(CFLAGS) -c -o $@ $<
 
-block_sync.o:
-	$(CC) $(CFLAGS) -c -o $@ $(SOURCES_DIR)/block_sync.c
+block_sync.o: $(SOURCES_DIR)/block_sync.c
+	$(CC) $(CFLAGS) -c -o $@ $<
 
-bitcoin_common.o:
-	$(CC) $(CFLAGS) -c -o $@ $(SOURCES_DIR)/bitcoin_common.c
+bitcoin_common.o: $(SOURCES_DIR)/bitcoin_common.c
+	$(CC) $(CFLAGS) -c -o $@ $<
 
-bitcoin_rpc.o:
-	$(CC) $(CFLAGS) -c -o $@ $(SOURCES_DIR)/bitcoin_rpc.c
+bitcoin_rpc.o: $(SOURCES_DIR)/bitcoin_rpc.c
+	$(CC) $(CFLAGS) -c -o $@ $<
 
-bitcoin_p2p.o:
-	$(CC) $(CFLAGS) -c -o $@ $(SOURCES_DIR)/bitcoin_p2p.c
+bitcoin_p2p.o: $(SOURCES_DIR)/bitcoin_p2p.c
+	$(CC) $(CFLAGS) -c -o $@ $<
 
-txdb.o:
-	$(CC) $(CFLAGS) -c -o $@ $(SOURCES_DIR)/txdb.c
+txdb.o: $(SOURCES_DIR)/txdb.c
+	$(CC) $(CFLAGS) -c -o $@ $<
 
-merkle.o:
-	$(CC) $(CFLAGS) -c -o $@ $(SOURCES_DIR)/merkle.c
+merkle.o: $(SOURCES_DIR)/merkle.c
+	$(CC) $(CFLAGS) -c -o $@ $<
 
-util.o:
-	$(CC) $(CFLAGS) -c -o $@ $(SOURCES_DIR)/util.c
+util.o: $(SOURCES_DIR)/util.c
+	$(CC) $(CFLAGS) -c -o $@ $<
 
-mempool.o:
-	$(CC) $(CFLAGS) -c -o $@ $(SOURCES_DIR)/mempool.c
+mempool.o: $(SOURCES_DIR)/mempool.c
+	$(CC) $(CFLAGS) -c -o $@ $<
 
-logging.o:
-	$(CC) $(CFLAGS) -c -o $@ $(SOURCES_DIR)/logging.c
+logging.o: $(SOURCES_DIR)/logging.c
+	$(CC) $(CFLAGS) -c -o $@ $<
 
-config.o:
-	$(CC) $(CFLAGS) -c -o $@ $(SOURCES_DIR)/config.c
+config.o: $(SOURCES_DIR)/config.c
+	$(CC) $(CFLAGS) -c -o $@ $<
 
-electrum_rpc.o:
-	$(CC) $(CFLAGS) -c -o $@ $(SOURCES_DIR)/electrum_rpc.c
+electrum_rpc.o: $(SOURCES_DIR)/electrum_rpc.c
+	$(CC) $(CFLAGS) -c -o $@ $<
 
-main.o:
-	$(CC) $(CFLAGS) -c -o $@ $(SOURCES_DIR)/main.c
+main.o: $(SOURCES_DIR)/main.c
+	$(CC) $(CFLAGS) -c -o $@ $<
 
 .PHONY: clean
 clean:
