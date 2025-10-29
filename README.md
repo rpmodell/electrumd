@@ -15,14 +15,21 @@ Electrumd is a small and lightweight Electrum server.
 - Please use English in comments.
 
 ### Reporting an issue
-- Try to provide as much as information as possible (e.g. OS, libs versions, height, Bitcoin CORE version ...)
+- Try to provide as much informations as possible (e.g. OS, libs versions, height, Bitcoin CORE version ...)
 - Use a debug log level and attach the debug file
 
 ### Things not working
+- OpenBSD support coming soon...
 - Mempool sync via P2P protocol
 - Berkley DB recovery in case of failure
 - SSL server not yet supported
-- Integration test script is not POSIX compliant and need bash
+- Integration test script is not POSIX compliant and needs bash
+
+### Build and install
+- To build and install electrumd
+```bash
+# make install clean
+```
 
 ### Additional notes
 - For now at least, electrumd must be intended to be used in a small scale home or friends environment it is not meant for a enterprise service level
