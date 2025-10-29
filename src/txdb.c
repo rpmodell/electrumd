@@ -81,7 +81,7 @@ uint32_t db_partition_fn(DB *db, DBT *key)
      */
 
     if (key && key->size == 8)
-        return (*((uint32_t*) key->data + 4)) % 127;
+        return (*((uint32_t*) key->data + 4)) % 4;
 
     return 0;
 }
@@ -177,6 +177,9 @@ int txdb_open(TXDB *dbptr, const char *db_dir, unsigned int cache_size, long sta
         logerrf("txdb open: %s: %s", db_dir, db_strerror(ret));
         return -1;
     }
+//    an experimental flag to try to increase write performance, off for now needs to be tested
+//    dbptr->env_ptr->set_lk_max_objects(dbptr->env_ptr, 10000); // Increase the maximum number of locked objects
+
     if ((ret = dbptr->env_ptr->set_cachesize(dbptr->env_ptr, 0, 64 * 1024 * 1024, 0)) != 0) {
         return ret;
     }
@@ -199,12 +202,12 @@ int txdb_open(TXDB *dbptr, const char *db_dir, unsigned int cache_size, long sta
     }
 
 
-    if ((ret = db_init_open(&dbptr->txins_ptr, dbptr->env_ptr, TXINS_DB_FILE_NAME, DB_DUP, 0, &db_partition_fn))) {
+    if ((ret = db_init_open(&dbptr->txins_ptr, dbptr->env_ptr, TXINS_DB_FILE_NAME, DB_DUP | DB_AUTO_COMMIT, 0, &db_partition_fn))) {
         logerrf("txdb open: %s: %s", TXINS_DB_FILE_NAME, db_strerror(ret));
         return -1;
     }
 	
-    if ((ret = db_init_open(&dbptr->txouts_ptr, dbptr->env_ptr, TXOUTS_DB_FILE_NAME, DB_DUP, 0, &db_partition_fn))) {
+    if ((ret = db_init_open(&dbptr->txouts_ptr, dbptr->env_ptr, TXOUTS_DB_FILE_NAME, DB_DUP | DB_AUTO_COMMIT, 0, &db_partition_fn))) {
         logerrf("txdb open: %s: %s", TXOUTS_DB_FILE_NAME, db_strerror(ret));
 		return -1;
     }
@@ -398,8 +401,11 @@ close_cur:
 int history_item_comp(const void *a, const void *b)
 {
     /* If history items are in the same block then sort using the tx index */
-    int ret = ((HistoryItem*) a)->height - ((HistoryItem*) b)->height;
-    return ret ? ret : ((HistoryItem*) a)->tx_index - ((HistoryItem*) b)->tx_index;;
+    int diff = ((HistoryItem*) a)->height - ((HistoryItem*) b)->height;
+    if (diff == 0)
+        diff = ((HistoryItem*) a)->tx_index - ((HistoryItem*) b)->tx_index;
+
+    return diff;
 }
 
 size_t txdb_history(TXDB *dbptr, uint8_t *scripthash, HistoryItem **historyp, size_t limit)
@@ -423,8 +429,6 @@ size_t txdb_history(TXDB *dbptr, uint8_t *scripthash, HistoryItem **historyp, si
 
     key.data = scripthash;
     key.size = 8;
-
-    fprintf(stderr, "trace HISTORY -\n");
 
     if ((ret = dbcp->c_get(dbcp, &key, &data, DB_SET))) {
         logdebugf("db err txlook %s", db_strerror(ret));
