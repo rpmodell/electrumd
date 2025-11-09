@@ -94,7 +94,7 @@ echo `$BTC getblockchaininfo | jq -r '"[*] generated \(.blocks) regtest blocks (
 
 TIP=`$BTC getbestblockhash`
 
-$ELECTRUMD_PATH -c $CONF_PATH -ldebug -nregtest >> $ELECTRUMD_DATA_DIR/test.log 2>&1 &
+$ELECTRUMD_PATH -c $CONF_PATH -ldebug -nregtest 2> $ELECTRUMD_DATA_DIR/fatal.log &
 ELECTRUMD_PID=$!
 tail_log $ELECTRUMD_DATA_DIR/test.log | grep -m1 "electrum rpc server: socket is listening"
 
