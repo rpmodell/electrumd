@@ -314,10 +314,6 @@ int mempool_cache_update(MempoolCache *mcp, BitcoinRpcCtx *btc_rpc_ctx, HashesVe
         append_fee_hist_size(mcp, fee_rate, e->vsize);
     }
 
-    for (i = 0; i < mcp->fee_hist_sz; i++) {
-        fprintf(stderr, "p: %ld: rate=%ld, vsize=%ld\n", i, mcp->fee_hist[i].rate, mcp->fee_hist[i].vsize);
-    }
-
     /*
      * Compact the histogram,
      * refs:
@@ -492,10 +488,6 @@ int mempool_cache_update2(MempoolCache *mcp, BitcoinRpcCtx *btc_rpc_ctx, BtcP2pP
     for (e = mcp->tx_cache.head; e; e = e->next) {
         fee_rate = (int64_t) (floor(e->fee / e->vsize * 10.0) / 10.0);
         append_fee_hist_size(mcp, fee_rate, e->vsize);
-    }
-
-    for (i = 0; i < mcp->fee_hist_sz; i++) {
-        fprintf(stderr, "p: %ld: rate=%ld, vsize=%ld\n", i, mcp->fee_hist[i].rate, mcp->fee_hist[i].vsize);
     }
 
     /*

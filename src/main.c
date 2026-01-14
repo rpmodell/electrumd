@@ -270,7 +270,7 @@ int main(int argc, char **argv)
     mempool_cache_update(&mcp, &rpc_ctx, NULL);
 //    mempool_cache_update2(&mcp, &rpc_ctx, &p2p_ctx, NULL);
 
-    electrum_server_init("0.0.0.0", configs.electrumd_rpc_port, configs.donation_address, configs.banner);
+    electrum_server_init(configs.electrumd_rpc_bind, configs.electrumd_rpc_port, configs.donation_address, configs.banner);
 
     struct btc_sync_thread_args sync_thread_args;
     sync_thread_args.core_rpc_ctx = &rpc_ctx;
@@ -280,7 +280,7 @@ int main(int argc, char **argv)
 
     pthread_create(&sync_thread, NULL, &btc_sync_thread_func, &sync_thread_args);
 
-    electrum_server_start(&mcp, &rpc_ctx, &txdb, "0.0.0.0", configs.electrumd_rpc_port);
+    electrum_server_start(&mcp, &rpc_ctx, &txdb, configs.electrumd_rpc_bind, configs.electrumd_rpc_port);
 
     pthread_join(sync_thread, NULL);
 

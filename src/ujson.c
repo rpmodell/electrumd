@@ -36,10 +36,10 @@ static char *str_clone(const char *str)
 {
 	if (!str)
 		return NULL;
-	long str_sz = strlen(str);
-	char *clone = (char*) malloc((str_sz + 1) * sizeof(char));
+    long str_sz = strlen(str);
+    char *clone = (char*) malloc((str_sz + 1) * sizeof(char));
 	if (clone) 
-		strcpy(clone, str);
+        strcpy(clone, str);
 		
 	return clone;
 	
@@ -311,8 +311,10 @@ char *jsonobj_to_str(jsonobj *head)
         str_capacity += 2;
 		break;
 	case BOOL:
+        str_capacity += head->e.bool_value ? 4 : 5;
+        break;
 	case JSON_NULL:
-		str_capacity += 5;
+        str_capacity += 4;
 		break;
 	}
     char *str = (char*) malloc(str_capacity * sizeof(char));
@@ -328,14 +330,15 @@ char *jsonobj_to_str(jsonobj *head)
         sprintf(str, "%ld", head->e.int_value);
 		break;
 	case DOUBLE:
-        sprintf(str, "%f", head->e.double_value);
+        sprintf(str, "%lf", head->e.double_value);
 		break;
 	case LIST:
 		sprintf(str, "[");
 		for (e = head->child; e && e->previous; e = e->previous);
 		for (; e; e = e->next) {
 			char *istr = jsonobj_to_str(e);
-            str_capacity += strlen(istr) + 3;
+            str_capacity += strlen(istr) + 2 + + (e->next ? 1 : 0);
+
 			str = (char*) realloc(str, str_capacity * sizeof(*str));
 			strcat(str, istr);
 			if (e->next)
@@ -351,7 +354,8 @@ char *jsonobj_to_str(jsonobj *head)
         for (; e; e = e->next) {
 
 			char *istr = jsonobj_to_str(e);
-            str_capacity += strlen(e->key) + strlen(istr) + 4;
+            str_capacity += strlen(e->key) + strlen(istr) + 3 + (e->next ? 1 : 0);
+
             str = (char*) realloc(str, str_capacity * sizeof(char));
             strcat(str, "\"");
             strcat(str, e->key);

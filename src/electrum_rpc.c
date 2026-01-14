@@ -704,7 +704,7 @@ int blockchain_transaction_get_merkle(MempoolCache *mc_ptr, BitcoinRpcCtx *btc_r
 
     HashesVec branches;
     HASHES_VEC_INIT(&branches);
-    if (merkle_branch_and_root(NULL, &branches, &hashes, tx_pos, -1)) {
+    if (merkle_branch_and_root(NULL, &branches, &hashes, tx_pos, 0)) {
         hashes_vec_free(&hashes);
         return JSONRPC_INTERNAL_ERROR;
     }
@@ -792,7 +792,7 @@ int blockchain_transaction_id_from_pos(MempoolCache *mc_ptr, BitcoinRpcCtx *btc_
     if (merkle) {
         HashesVec branches;
         HASHES_VEC_INIT(&branches);
-        if (merkle_branch_and_root(NULL, &branches, &hashes, pos, -1)) {
+        if (merkle_branch_and_root(NULL, &branches, &hashes, pos, 0)) {
             hashes_vec_free(&hashes);
             return JSONRPC_INTERNAL_ERROR;
         }

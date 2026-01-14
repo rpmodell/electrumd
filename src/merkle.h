@@ -35,6 +35,6 @@
 
 #include "hashes_vec.h"
 
-int merkle_branch_and_root(uint8_t *root, HashesVec *branches, HashesVec *hashesv, int index, long opt_len);
+int merkle_branch_and_root(uint8_t *root, HashesVec *branches, HashesVec *hashesv, int index, long len);
 
 #endif

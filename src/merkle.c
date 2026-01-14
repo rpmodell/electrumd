@@ -35,16 +35,16 @@
 #include <assert.h>
 #include <stdio.h>
 
-#define BRANCH_LEN(S) (S == 0 ? 0 : (unsigned long) ceil(log2(S)))
-
-int merkle_branch_and_root(uint8_t *root, HashesVec *branches, HashesVec *hashesv, int index, long opt_len)
+int merkle_branch_and_root(uint8_t *root, HashesVec *branches, HashesVec *hashesv, int index, long length)
 {
     long hvsz = hashesv->size;
     if (!hvsz || index >= hvsz) {
         return -1;
     }
 
-    long length = opt_len > 0 ? opt_len : BRANCH_LEN(hvsz);
+    if (!length)
+        length = (long) ceil(log2(hvsz));
+
     hashes_vec_reserve(branches, length);
 
     long hashesv_cpy_sz = hvsz;

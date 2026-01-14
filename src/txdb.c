@@ -563,7 +563,6 @@ int txdb_store_block_header(TXDB *dbptr, const uint8_t *data, uint32_t height)
 
 int txdb_get_block_header(TXDB *dbptr, uint8_t *header, uint32_t height)
 {
-    fprintf(stderr, "txdb_get_block_header h=%d\n", height);
     DBT key, data;
     memset(&key, 0, sizeof(key));
     memset(&data, 0, sizeof(data));
