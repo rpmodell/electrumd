@@ -242,7 +242,7 @@ int prefetch_blocks2(BitcoinRpcCtx *btc_rpc_ctx, BtcP2pProtoCtx *p2p_ctx, TXDB *
         size_t txns, itx, itxo;
         long i, count = MIN(last_height - dbptr->current_height, P2P_GETBLOCKS_MAX); //cache is always a fixed value of 100
         HashesVec block_hashes;
-        memset(&block_hashes, 0, sizeof(block_hashes));
+        hashes_vec_init(&block_hashes);
 
         for (i = 0; i < count; i++) {	//error logging and handling
             if ((ret = getblockhash(btc_rpc_ctx, dbptr->current_height + i + 1, hashstr))) {

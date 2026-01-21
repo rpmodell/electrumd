@@ -31,38 +31,41 @@
 #define __HASHES_VEC_H__
 
 #include <stdint.h>
-
-#define HASHES_VEC_INIT(hv) (hv)->capacity = 0; (hv)->size = 0; (hv)->v = NULL;
+#include <sys/types.h>
 
 typedef struct {
-    long capacity;
-    long size;
+    ssize_t capacity;
+    ssize_t size;
     uint8_t **v;
 } HashesVec;
+
+void hashes_vec_init(HashesVec *vec);
 
 /*
     hashes_vec_reserve increases the capacity of the vector without allocating the memory for
     the new hashes
 */
-void hashes_vec_reserve(HashesVec *vec, long new_sz);
+void hashes_vec_reserve(HashesVec *vec, ssize_t new_sz);
 
 /*
     hashes_vec_add allocates new memory for the new hash, copies the hash value to the allocated memory
     if hash != NULL
 */
-long hashes_vec_add(HashesVec *vec, uint8_t *hash);
+ssize_t hashes_vec_add(HashesVec *vec, uint8_t *hash);
 
 /*
     copies the hash value to the vector element at index, does not allocates memory,
     returns -1 if the specified index location does not exists
 */
-long hashes_vec_insert(HashesVec *vec, long index, uint8_t *hash);
+ssize_t hashes_vec_insert(HashesVec *vec, ssize_t index, uint8_t *hash);
 
 /*
     returns: the index of the hash in the vector, -1 if not found
 */
-long hashes_vec_find(HashesVec *vec, uint8_t *hash);
-int hashes_vec_remove(HashesVec *vec, long index);
+ssize_t hashes_vec_find(HashesVec *vec, uint8_t *hash);
+
+int hashes_vec_remove(HashesVec *vec, ssize_t index);
+
 void hashes_vec_free(HashesVec *vec);
 
 #endif

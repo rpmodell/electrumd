@@ -35,24 +35,24 @@
 #include <assert.h>
 #include <stdio.h>
 
-int merkle_branch_and_root(uint8_t *root, HashesVec *branches, HashesVec *hashesv, int index, long length)
+int merkle_branch_and_root(uint8_t *root, HashesVec *branches, HashesVec *hashesv, int index, ssize_t length)
 {
-    long hvsz = hashesv->size;
+    ssize_t hvsz = hashesv->size;
     if (!hvsz || index >= hvsz) {
         return -1;
     }
 
     if (!length)
-        length = (long) ceil(log2(hvsz));
+        length = (ssize_t) ceil(log2(hvsz));
 
     hashes_vec_reserve(branches, length);
 
-    long hashesv_cpy_sz = hvsz;
+    ssize_t hashesv_cpy_sz = hvsz;
     HashesVec hashesv_cpy;
-    HASHES_VEC_INIT(&hashesv_cpy);
+    hashes_vec_init(&hashesv_cpy);
     hashes_vec_reserve(&hashesv_cpy, hvsz + 1);
 
-    long i, j, k;
+    ssize_t i, j, k;
     for (i = 0; i < hvsz; i++) {
         hashes_vec_add(&hashesv_cpy, hashesv->v[i]);
     }

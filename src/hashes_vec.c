@@ -31,19 +31,21 @@
 #include <stdlib.h>
 #include <string.h>
 
-//remove include
-#include <stdio.h>
-
 #include "hashes_vec.h"
 
-void hashes_vec_reserve(HashesVec *vec, long new_sz)
+void hashes_vec_init(HashesVec *vec)
 {
-    if (!vec->v) {
-        vec->capacity = new_sz;
-        vec->v = (uint8_t**) malloc(vec->capacity * sizeof(uint8_t*));
-    }
+    vec->capacity = 0;
+    vec->size = 0;
+    vec->v = NULL;
+}
 
+void hashes_vec_reserve(HashesVec *vec, ssize_t new_sz)
+{
     if (new_sz >= vec->capacity) {
+        if (vec->capacity == 0)
+            vec->capacity = new_sz;
+
         while (vec->capacity < new_sz)
             vec->capacity *= 2;
 
@@ -51,7 +53,7 @@ void hashes_vec_reserve(HashesVec *vec, long new_sz)
     }
 }
 
-long hashes_vec_add(HashesVec *vec, uint8_t *hash)
+ssize_t hashes_vec_add(HashesVec *vec, uint8_t *hash)
 {
     hashes_vec_reserve(vec, vec->size + 1);
 
@@ -63,7 +65,7 @@ long hashes_vec_add(HashesVec *vec, uint8_t *hash)
     return vec->size++;
 }
 
-long hashes_vec_insert(HashesVec *vec, long index, uint8_t *hash)
+ssize_t hashes_vec_insert(HashesVec *vec, ssize_t index, uint8_t *hash)
 {
     if (hash && index < vec->size) {
         memcpy(vec->v[index], hash, 32);
@@ -73,7 +75,7 @@ long hashes_vec_insert(HashesVec *vec, long index, uint8_t *hash)
     return -1;
 }
 
-long hashes_vec_find(HashesVec *vec, uint8_t *hash)
+ssize_t hashes_vec_find(HashesVec *vec, uint8_t *hash)
 {
     long i;
     for (i = 0; i < vec->size; i++) {
@@ -84,7 +86,7 @@ long hashes_vec_find(HashesVec *vec, uint8_t *hash)
     return -1;
 }
 
-int hashes_vec_remove(HashesVec *vec, long index)
+int hashes_vec_remove(HashesVec *vec, ssize_t index)
 {
     if (index <= vec->size) {
         free(vec->v[index]);

@@ -47,9 +47,8 @@
 
 static inline char *str_trim(char *str)
 {
-	int i;
-	int v = 0;
-    for (i = 0; i < strlen(str); i++) {
+    size_t i, v;
+    for (i = 0, v = 0; i < strlen(str); i++) {
 		if (str[i] != ' ' && str[i] != '\t')
 			str[v++] = str[i];
     }

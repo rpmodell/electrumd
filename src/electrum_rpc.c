@@ -692,7 +692,7 @@ int blockchain_transaction_get_merkle(MempoolCache *mc_ptr, BitcoinRpcCtx *btc_r
     }
 
     HashesVec hashes;
-    HASHES_VEC_INIT(&hashes);
+    hashes_vec_init(&hashes);
     if (txdb_lookup_txhashes_at_height(dbptr, &hashes, height_param->e.int_value))
         return JSONRPC_INTERNAL_ERROR;
 
@@ -703,7 +703,7 @@ int blockchain_transaction_get_merkle(MempoolCache *mc_ptr, BitcoinRpcCtx *btc_r
     }
 
     HashesVec branches;
-    HASHES_VEC_INIT(&branches);
+    hashes_vec_init(&branches);
     if (merkle_branch_and_root(NULL, &branches, &hashes, tx_pos, 0)) {
         hashes_vec_free(&hashes);
         return JSONRPC_INTERNAL_ERROR;
@@ -777,7 +777,7 @@ int blockchain_transaction_id_from_pos(MempoolCache *mc_ptr, BitcoinRpcCtx *btc_
     }
 
     HashesVec hashes;
-    HASHES_VEC_INIT(&hashes);
+    hashes_vec_init(&hashes);
     if (txdb_lookup_txhashes_at_height(dbptr, &hashes, height_param->e.int_value))
         return JSONRPC_INTERNAL_ERROR;
 
@@ -791,7 +791,7 @@ int blockchain_transaction_id_from_pos(MempoolCache *mc_ptr, BitcoinRpcCtx *btc_
 
     if (merkle) {
         HashesVec branches;
-        HASHES_VEC_INIT(&branches);
+        hashes_vec_init(&branches);
         if (merkle_branch_and_root(NULL, &branches, &hashes, pos, 0)) {
             hashes_vec_free(&hashes);
             return JSONRPC_INTERNAL_ERROR;
@@ -1236,7 +1236,7 @@ int electrum_server_init(char *pub_addr, int port, char *donation_addr, char *ba
         struct subscription *s = &subscriptions[i];
         s->client_fd = -1;
         s->subscr_mode = 0;
-        HASHES_VEC_INIT(&s->scriphashes);
+        hashes_vec_init(&s->scriphashes);
     }
 
     return 0;
@@ -1332,7 +1332,7 @@ int electrum_server_start(MempoolCache *mcp, BitcoinRpcCtx *btc_rpc_ctx, TXDB *d
                         s->client_fd = -1;
                         s->subscr_mode = 0;
                         hashes_vec_free(&s->scriphashes);
-                        HASHES_VEC_INIT(&s->scriphashes);
+                        hashes_vec_init(&s->scriphashes);
                     }
 
                     close(fds[i].fd);

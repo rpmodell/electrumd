@@ -75,7 +75,7 @@ void *btc_sync_thread_func(void *o)
             prev_height = last_height = arg->dbptr->current_height;
 
             HashesVec new_scripthashes;
-            HASHES_VEC_INIT(&new_scripthashes);
+            hashes_vec_init(&new_scripthashes);
 
             mempool_cache_update(arg->mc_ptr, arg->core_rpc_ctx, &new_scripthashes);
 //            mempool_cache_update2(arg->mc_ptr, arg->core_rpc_ctx, arg->p2p_ctx, &new_scripthashes);

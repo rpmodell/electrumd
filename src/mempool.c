@@ -233,7 +233,7 @@ struct mc_tx_entry *tx_cache_remove(MempoolCache *mcp, struct mc_tx_entry *e)
 int mempool_cache_update(MempoolCache *mcp, BitcoinRpcCtx *btc_rpc_ctx, HashesVec *new_scripthashes)
 {
     HashesVec new_txs_hashes;
-    HASHES_VEC_INIT(&new_txs_hashes);
+    hashes_vec_init(&new_txs_hashes);
 
     if (getrawmempool(btc_rpc_ctx, &new_txs_hashes))
         return -1;
@@ -241,7 +241,7 @@ int mempool_cache_update(MempoolCache *mcp, BitcoinRpcCtx *btc_rpc_ctx, HashesVe
     logdebugf("mempool cache update new mempool size = %ld", new_txs_hashes.size);
 
     // Discard txs not in mempool from bitcoin daemon, keep the others
-    long i, j, rawtx_sz;
+    ssize_t i, j, rawtx_sz;
     struct mc_tx_entry *e = mcp->tx_cache.head;
     while (e) {
         if (hashes_vec_find(&new_txs_hashes, e->tx.txid) == -1)
@@ -402,7 +402,7 @@ mempool_cache_update_end:
 int mempool_cache_update2(MempoolCache *mcp, BitcoinRpcCtx *btc_rpc_ctx, BtcP2pProtoCtx *p2p_ctx, HashesVec *new_scripthashes)
 {
     HashesVec new_txs_hashes;
-    HASHES_VEC_INIT(&new_txs_hashes);
+    hashes_vec_init(&new_txs_hashes);
 
     if (getrawmempool(btc_rpc_ctx, &new_txs_hashes))
         return -1;
@@ -410,7 +410,7 @@ int mempool_cache_update2(MempoolCache *mcp, BitcoinRpcCtx *btc_rpc_ctx, BtcP2pP
     logdebugf("mempool cache update new mempool size = %ld", new_txs_hashes.size);
 
     // Discard txs not in mempool from bitcoin daemon, keep the others
-    long i, j;
+    ssize_t i, j;
     struct mc_tx_entry *e = mcp->tx_cache.head;
     while (e) {
         if (hashes_vec_find(&new_txs_hashes, e->tx.txid) == -1)

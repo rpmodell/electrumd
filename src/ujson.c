@@ -39,7 +39,7 @@ static char *str_clone(const char *str)
     long str_sz = strlen(str);
     char *clone = (char*) malloc((str_sz + 1) * sizeof(char));
 	if (clone) 
-        strcpy(clone, str);
+        strncpy(clone, str, str_sz + 1);
 		
 	return clone;
 	
@@ -69,17 +69,15 @@ static char *parse_quoted_str(char **buf)
             return NULL;
         }
 
-        char *str = (char*) malloc((1 + end_ptr - *buf) * sizeof(*str));
-        int i = 0;
-        while((*buf) < end_ptr) {
-            str[i] = (**buf);
-            (*buf)++;
-            i++;
-        }
-        str[i] = '\0';
-        (*buf)++;
+        size_t slen = end_ptr - *buf;
+        char *str = (char*) malloc((1 + slen) * sizeof(*str));
+        strncpy(str, *buf, slen);
+        str[slen] = '\0';
+
+        (*buf) += slen + 1;
         return str;
     }
+
     return NULL;
 }
 
@@ -297,7 +295,7 @@ char *jsonobj_to_str(jsonobj *head)
 {	
 	jsonobj *e = NULL;
 	enum json_type t = head->type;
-	int str_capacity = 1;
+    size_t str_capacity = 1;
 	switch (t) {
 	case STRING:
         str_capacity += strlen(head->e.string_value) + 2;
@@ -337,7 +335,7 @@ char *jsonobj_to_str(jsonobj *head)
 		for (e = head->child; e && e->previous; e = e->previous);
 		for (; e; e = e->next) {
 			char *istr = jsonobj_to_str(e);
-            str_capacity += strlen(istr) + 2 + + (e->next ? 1 : 0);
+            str_capacity += strlen(istr) + 2 + (e->next ? 1 : 0);
 
 			str = (char*) realloc(str, str_capacity * sizeof(*str));
 			strcat(str, istr);
@@ -488,7 +486,7 @@ void jsonobj_list_add_bool(jsonobj *list, int b)
 
 void jsonobj_list_add_str(jsonobj *list, const char *str)
 {
-	jsonobj_put_str(list, NULL, str);
+    jsonobj_put_str(list, NULL, str);
 }
 
 jsonobj *jsonobj_lookup(jsonobj *head, const char *key)
