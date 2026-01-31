@@ -41,9 +41,9 @@
 #include <zlib.h>
 
 #include "logging.h"
-
 #include "txdb.h"
 
+#define BDB_DEFAULT_FLAGS (DB_TXN_WRITE_NOSYNC | DB_TXN_NOSYNC)
 #define BDB_PAGE_SIZE (65536)
 
 /*
@@ -60,37 +60,26 @@ memset(dbt, 0, sizeof(DBT));\
 memset((dbt)->data, 0, (dbt)->ulen);\
 
 
-#define PARTITION_NUMBER (50) // never change this number!
 #define HEADERS_DB_FILE_NAME "headers.db"
 #define TXHASHES_DB_FILE_NAME "txhashes.db"
 #define TXINS_DB_FILE_NAME "txins.db"
 #define TXOUTS_DB_FILE_NAME "txouts.db"
 #define STATUS_FILE_NAME "status" //rename to dbstat
 
-uint32_t db_partition_fn(DB *db, DBT *key)
+int txhashes_comp(DB* db, const DBT *a, const DBT *b)
 {
-    /*
-        The db_partition_fn is used to know where to store and retrieve the keys
-        since we do not know how many entries will be placed in the database we
-        redistribute the keys randomly using an hash function of the 8bit hash
-        (txid for txins scripthash for txouts), this hash function is just a xor
-        of the 4hi bytes of the key with the random magic number 0xfffefdfc
-
-        The partition number will be the return value of this funcion modulo
-        the number of partitions.
-     */
-
-    if (key && key->size == 8)
-        return (*((uint32_t*) key->data + 4)) % 4;
-
-    return 0;
+	/* We need to ensure that the txhashes are ordered by DUPSORT in the order of insertion */
+	return 1;
 }
 
-int db_init_open(DB **dbp, DB_ENV *env, const char *db_name, int flags, uint32_t nparts, uint32_t (*partition_fn)(DB*, DBT*))
+int db_init_open(DB **dbp, const char *db_dir, const char *db_name, int flags, int (*dup_compare_fcn)(DB*, const DBT*, const DBT*))
 {
 	/* Create and initialize database object, open the database. */
 	int ret = 0;
-    if ((ret = db_create(dbp, env, 0))) {
+	char path_buf[1024];
+	snprintf(path_buf, 1024, "%s/%s", db_dir, db_name);
+
+    if ((ret = db_create(dbp, NULL, 0))) {
         logerrf("%s: create", db_name);
         return ret;
     }
@@ -100,6 +89,17 @@ int db_init_open(DB **dbp, DB_ENV *env, const char *db_name, int flags, uint32_t
         return ret;
     }
 
+    if ((ret = (*dbp)->set_cachesize(*dbp, 0, 64*1024*1024, 1))) {
+        logerrf("%s: pagesize error: ", db_name, db_strerror(ret));
+        return ret;
+    }
+	if (dup_compare_fcn) {
+		if ((ret = (*dbp)->set_dup_compare(*dbp, dup_compare_fcn))) {
+			logerrf("%d, failed to set duplicate compare function: %s", db_name, db_strerror(ret));
+			return ret;
+		}
+	}
+
     if (flags) {
         if ((ret = (*dbp)->set_flags(*dbp, flags)) != 0) {
             logerrf("%s: flags", db_name);
@@ -107,14 +107,7 @@ int db_init_open(DB **dbp, DB_ENV *env, const char *db_name, int flags, uint32_t
         }
     }
 
-    if (nparts) {
-        if ((ret = (*dbp)->set_partition(*dbp, nparts, NULL, partition_fn)) != 0) {
-            logerrf("%s: set_partition: %s", db_name, db_strerror(ret));
-            return ret;
-        }
-    }
-
-    if ((ret = (*dbp)->open(*dbp, NULL, db_name, NULL, DB_HASH, DB_CREATE, 0664)) != 0) {
+    if ((ret = (*dbp)->open(*dbp, NULL, path_buf, NULL, DB_HASH, DB_CREATE, 0664)) != 0) {
         logerrf("%s: ->open", db_name);
         return ret;
 	}
@@ -173,41 +166,23 @@ int txdb_open(TXDB *dbptr, const char *db_dir, unsigned int cache_size, long sta
         dbptr->current_height = start_height;
     }
 
-    if ((ret = db_env_create(&dbptr->env_ptr, 0)) != 0) {
-        logerrf("txdb open: %s: %s", db_dir, db_strerror(ret));
-        return -1;
-    }
-//    an experimental flag to try to increase write performance, off for now needs to be tested
-//    dbptr->env_ptr->set_lk_max_objects(dbptr->env_ptr, 10000); // Increase the maximum number of locked objects
-
-    if ((ret = dbptr->env_ptr->set_cachesize(dbptr->env_ptr, 0, 64 * 1024 * 1024, 0)) != 0) {
-        return ret;
-    }
-    /* Open the environment with full transactional support. */
-    if ((ret = dbptr->env_ptr->open(dbptr->env_ptr, db_dir,
-        DB_CREATE | DB_INIT_LOCK | DB_INIT_LOG | DB_INIT_TXN | DB_INIT_MPOOL, 0644)) != 0) {
-        logerrf("txdb open: %s: %s", db_dir, db_strerror(ret));
-        dbptr->env_ptr->close(dbptr->env_ptr, 0);
-        return -1;
-    }
-
-    if ((ret = db_init_open(&dbptr->headers_ptr, dbptr->env_ptr, HEADERS_DB_FILE_NAME, 0, 0, NULL))) {
+    if ((ret = db_init_open(&dbptr->headers_ptr, db_dir, HEADERS_DB_FILE_NAME, 0, NULL))) {
         logerrf("txdb open: %s: %s", HEADERS_DB_FILE_NAME, db_strerror(ret));
         return -1;
     }
 
-    if ((ret = db_init_open(&dbptr->txhashes_ptr, dbptr->env_ptr, TXHASHES_DB_FILE_NAME, 0, 0, NULL))) {
+    if ((ret = db_init_open(&dbptr->txhashes_ptr, db_dir, TXHASHES_DB_FILE_NAME, DB_DUP | DB_DUPSORT, &txhashes_comp))) {
         logerrf("txdb open: %s: %s", TXHASHES_DB_FILE_NAME, db_strerror(ret));
         return -1;
     }
 
 
-    if ((ret = db_init_open(&dbptr->txins_ptr, dbptr->env_ptr, TXINS_DB_FILE_NAME, DB_DUP | DB_AUTO_COMMIT, 0, &db_partition_fn))) {
+    if ((ret = db_init_open(&dbptr->txins_ptr, db_dir, TXINS_DB_FILE_NAME, DB_DUP, NULL))) {
         logerrf("txdb open: %s: %s", TXINS_DB_FILE_NAME, db_strerror(ret));
         return -1;
     }
 	
-    if ((ret = db_init_open(&dbptr->txouts_ptr, dbptr->env_ptr, TXOUTS_DB_FILE_NAME, DB_DUP | DB_AUTO_COMMIT, 0, &db_partition_fn))) {
+    if ((ret = db_init_open(&dbptr->txouts_ptr, db_dir, TXOUTS_DB_FILE_NAME, DB_DUP, NULL))) {
         logerrf("txdb open: %s: %s", TXOUTS_DB_FILE_NAME, db_strerror(ret));
 		return -1;
     }
@@ -237,10 +212,6 @@ size_t txdb_close(TXDB *dbptr)
 		return -1;
 	}
 
-    if ((ret = dbptr->env_ptr->close(dbptr->env_ptr, 0))) {
-        logerrf("txdb close: %s", db_strerror(ret));
-        return -1;
-    }
 	return 0;
 }
 
@@ -282,16 +253,13 @@ size_t txdb_flush(TXDB *dbptr)
 }
 
 /*
-    We store a single txid_prefix key for all tx inputs so that can be recognized using the prev_out_index.
-    This way we can save few disk space e.g. a tx that has 10 inputs weiges only 8+(10*(4+2+2)) = 88 bytes, while
-    the same tx stored with an unique key (txid+prevout_index) weiges 10*(8+2+4+2) = 160
-
-    NOTE: storing of the prev_out index can be avoided theoretically and this can save, considering the
-    example above, about 10*2 = 20 bytes because the index is equal to the position of the
-    duplicate in the db (if using DUPSORT option), however, for extra safety (we are talking about money afterall)
-    we prefer to store prevout index in the txin_dbt instead of relying on the database. If the space becomes a
-    problem this can be changed in the future.
-*/
+ * We store a single txid_prefix key for all transaction inputs, allowing them 
+ * to be recognized using the prev_out_index. This approach saves disk space. 
+ * For example, a transaction with 10 inputs would only require 88 bytes 
+ * (calculated as 8 + (10 * (4 + 2 + 2))), whereas the same transaction stored 
+ * with a unique key (txid + prevout_index) would require 160 bytes (calculated as 
+ * 10 * (8 + 2 + 4 + 2)).
+ */
 int txdb_get_txin(TXDB *dbptr, uint8_t *txid_prefix, uint16_t prev_out_index, struct txin_dbt *in_dbt)
 {
     int ret = 0;
@@ -502,28 +470,39 @@ int txdb_lookup_txhash(TXDB *dbptr, uint8_t *tx_hash, uint32_t height, uint16_t 
     int ret = 0;
     DBT key, data;
 
+	uint16_t itx = 0;
+
     memset(&key, 0, sizeof(key));
     memset(&data, 0, sizeof(data));
 
     key.data = &height;
     key.size = sizeof(height);
 
-    ret = dbptr->txhashes_ptr->get(dbptr->txhashes_ptr, NULL, &key, &data, 0);
-    if (ret)
-        return ret;
-
-    //for now are stored uncompressed //TODO -> zlib compression
-    size_t hashes_len = *((size_t*) data.data);
-    if (tx_index >= hashes_len)
+    DBC *dbcp; //Database cursor pointer used to iterate through the db
+    if ((ret = dbptr->txhashes_ptr->cursor(dbptr->txhashes_ptr, NULL, &dbcp, 0)) != 0) {
+        logerrf("failed init dbcursor %s", db_strerror(ret));
         return -1;
+    }
 
-    size_t pos = sizeof(size_t) + 32*tx_index;
-    if (pos + 32 > data.size)
-        return -2;
+    if ((ret = dbcp->c_get(dbcp, &key, &data, DB_SET))) {
+        //logdebugf("db err txlook %s", db_strerror(ret));
+        goto close_cur;
+    }
 
-    memcpy(tx_hash, ((uint8_t*) data.data) + pos, 32);
+    do {
+		if (itx == tx_index) {
+			memcpy(tx_hash, data.data, data.size);
+			goto close_cur;
+		}
+		itx++;
+    } while ((ret = dbcp->c_get(dbcp, &key, &data, DB_NEXT_DUP)) == 0);
 
-    return 0;
+close_cur:
+    if (dbcp->close(dbcp)) {
+        logerrf("dbcp_close err!");
+    }
+
+    return ret;
 }
 
 int txdb_lookup_txhashes_at_height(TXDB *dbptr, HashesVec *hashes, uint32_t height)
@@ -537,22 +516,27 @@ int txdb_lookup_txhashes_at_height(TXDB *dbptr, HashesVec *hashes, uint32_t heig
     key.data = &height;
     key.size = sizeof(height);
 
-    ret = dbptr->txhashes_ptr->get(dbptr->txhashes_ptr, NULL, &key, &data, 0);
-    if (ret)
-        return ret;
-
-    //for now are stored uncompressed //TODO -> zlib compression
-    size_t i;
-    size_t hashes_len = *((size_t*) data.data);
-    if (!hashes_len)
+    DBC *dbcp; //Database cursor pointer used to iterate through the db
+    if ((ret = dbptr->txhashes_ptr->cursor(dbptr->txhashes_ptr, NULL, &dbcp, 0)) != 0) {
+        logerrf("failed init dbcursor %s", db_strerror(ret));
         return -1;
-
-    hashes_vec_reserve(hashes, hashes_len);
-    for (i = 0; i < hashes_len; i++) {
-        hashes_vec_add(hashes, ((uint8_t*) data.data) + sizeof(size_t) + i * 32);
     }
 
-    return 0;
+    if ((ret = dbcp->c_get(dbcp, &key, &data, DB_SET))) {
+        //logdebugf("db err txlook %s", db_strerror(ret));
+        goto close_cur;
+    }
+
+    do {
+		hashes_vec_add(hashes, (uint8_t*) data.data);
+    } while ((ret = dbcp->c_get(dbcp, &key, &data, DB_NEXT_DUP)) == 0);
+
+close_cur:
+    if (dbcp->close(dbcp)) {
+        logerrf("dbcp_close err!");
+    }
+
+    return ret;
 }
 
 int txdb_store_block_header(TXDB *dbptr, const uint8_t *data, uint32_t height)
@@ -588,59 +572,69 @@ int txdb_store_txs(TXDB *dbptr, BtcTx *txs, size_t txs_sz, uint32_t height)
     size_t itx, i;
     struct utxo_dbt udbt;
     struct txin_dbt in_dbt;
+    
+    BtcTx *tx;
+    
+    
     for (itx = 0; itx < txs_sz; itx++) {
-        BtcTx tx = txs[itx];
-
         assert(itx < USHRT_MAX);
 
+		tx = &txs[itx];
         if (itx > 0) {
             /* We do not store coinbase tx inputs because a coinbase tx has dummy inputs */
-            for (i = 0; i < tx.tx_in_count; i++) {
-                assert(tx.tx_in[i].prev_out_index < USHRT_MAX);
+            for (i = 0; i < tx->tx_in_count; i++) {
+                assert(tx->tx_in[i].prev_out_index < USHRT_MAX);
 
                 memset(&in_dbt, 0, sizeof(struct txin_dbt));
                 in_dbt.height = height;
                 in_dbt.tx_index = (uint16_t) itx;
-                in_dbt.prev_out_index = (uint16_t) tx.tx_in[i].prev_out_index;
+                in_dbt.prev_out_index = (uint16_t) tx->tx_in[i].prev_out_index;
 
-                if ((ret = db_put(dbptr->txins_ptr, tx.tx_in[i].prev_out_hash, 8, &in_dbt, sizeof(in_dbt)))) {
+                if ((ret = db_put(dbptr->txins_ptr, tx->tx_in[i].prev_out_hash, 8, &in_dbt, sizeof(in_dbt)))) {
                     logerrf("txdb: error storing txins");
                     goto txdb_store_txs_end;
                 }
             }
         }
-
-        for (i = 0; i < tx.tx_out_count; i++) {
+    }
+    
+    for (itx = 0; itx < txs_sz; itx++) {
+		tx = &txs[itx];
+		
+		for (i = 0; i < tx->tx_out_count; i++) {
             assert(i < USHRT_MAX);
 
             memset(&udbt, 0, sizeof(struct utxo_dbt));
-            udbt.value = tx.tx_out[i].value;
+            udbt.value = tx->tx_out[i].value;
             udbt.height = height;
             udbt.tx_pos = (uint16_t) i;
             udbt.tx_index = (uint16_t) itx;
-            memcpy(udbt.txid_prefix, tx.txid, sizeof(udbt.txid_prefix));
+            memcpy(udbt.txid_prefix, tx->txid, sizeof(udbt.txid_prefix));
 
-            if (tx.tx_out[i].pk_script_len > 0) {
-                if ((ret = db_put(dbptr->txouts_ptr, tx.tx_out[i].pk_script_hash, 8, &udbt, sizeof(udbt)))) {
+            if (tx->tx_out[i].pk_script_len > 0) {
+                if ((ret = db_put(dbptr->txouts_ptr, tx->tx_out[i].pk_script_hash, 8, &udbt, sizeof(udbt)))) {
                     logerrf("txdb: error storing txouts");
                     goto txdb_store_txs_end;
                 }
             }
         }
+	}
+
+	/*
+	 * If a block contains 2,000+ transactions, storing all txids in a single byte array can produce a 
+	 * DBT with a variable data size. This size can easily exceed the maximum page size of the database. 
+	 * When the data size surpasses the page size, BerkeleyDB creates overflow pages, which can dramatically 
+	 * impact write performance. To avoid this, each txid is stored as a duplicate record (DB_DUP|DB_DUPSORT) 
+	 * in the format [height, txid(32)] in sorted order. This sorting is enforced by the txhashes_comp sort 
+	 * function to ensure that txids are stored in the same order as the transactions in the block.
+	 * Upon retrieval, the txids will be fetched in the exact same order.
+	 */
+	for (itx = 0; itx < txs_sz; itx++) {
+    	if ((ret = db_put(dbptr->txhashes_ptr, &height, sizeof(height), txs[itx].txid, 32))) {
+			goto txdb_store_txs_end;
+		}
     }
 
-    /*
-            Store uncompressed (for now) tx hashes array
-    */
-    size_t tx_hashes_ser_sz = (sizeof(size_t) + txs_sz * 32) * sizeof(uint8_t);
-    uint8_t *tx_hashes = (uint8_t*) malloc(tx_hashes_ser_sz);
-    memcpy(tx_hashes, &txs_sz, sizeof(size_t));
-    for (itx = 0; itx < txs_sz; itx++) {
-        memcpy(tx_hashes + sizeof(size_t) + itx * 32, txs[itx].txid, 32);
-    }
-
-    ret = db_put(dbptr->txhashes_ptr, &height, sizeof(height), tx_hashes, tx_hashes_ser_sz);
-    free(tx_hashes);
 txdb_store_txs_end:
     return ret;
 }
@@ -674,10 +668,6 @@ int txdb_bulk_store_txs(TXDB *dbptr, BtcTx *txs, size_t txs_sz, uint32_t height)
         bulk_txins_len += txs[itx].tx_in_count;
         bulk_txouts_len += txs[itx].tx_out_count;
     }
-
-//    if ((ret = dbptr->env_ptr->txn_begin(dbptr->env_ptr, NULL, &txn, 0))) {
-//        return ret;
-//    }
 
     /*
      * Need to account for proper buffer size,
@@ -745,18 +735,11 @@ int txdb_bulk_store_txs(TXDB *dbptr, BtcTx *txs, size_t txs_sz, uint32_t height)
         goto txdb_store_txs_end;
     }
 
-    /*
-            Store uncompressed (for now) tx hashes array
-    */
-    size_t tx_hashes_ser_sz = (sizeof(size_t) + txs_sz * 32) * sizeof(uint8_t);
-    uint8_t *tx_hashes = (uint8_t*) malloc(tx_hashes_ser_sz);
-    memcpy(tx_hashes, &txs_sz, sizeof(size_t));
     for (itx = 0; itx < txs_sz; itx++) {
-        memcpy(tx_hashes + sizeof(size_t) + itx * 32, txs[itx].txid, 32);
+    	if ((ret = db_put(dbptr->txhashes_ptr, &height, sizeof(height), txs[itx].txid, 32))) {
+			goto txdb_store_txs_end;
+		}
     }
-
-    ret = db_put(dbptr->txhashes_ptr, &height, sizeof(height), tx_hashes, tx_hashes_ser_sz);
-    free(tx_hashes);
 
 txdb_store_txs_end:
     free(txins_key.data);
