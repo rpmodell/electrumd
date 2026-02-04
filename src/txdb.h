@@ -91,6 +91,7 @@ typedef struct {
 typedef struct {
     char db_dir[512];
     long current_height;
+    DB_ENV *env_ptr;
     DB *headers_ptr;
     DB *txhashes_ptr;
     DB *txins_ptr; // key txindex (outpoint hash prefix) hash first 8 bytes, value height

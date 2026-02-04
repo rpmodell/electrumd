@@ -306,7 +306,7 @@ int prefetch_blocks2(BitcoinRpcCtx *btc_rpc_ctx, BtcP2pProtoCtx *p2p_ctx, TXDB *
 
 #endif
 
-            //logdebugf("received block no=%ld", i);
+            logdebugf("received block no=%ld", i);
             long height = dbptr->current_height + 1;
             if (block_sz < BLOCK_HEADER_SIZE) {
                 logerrf("blocks sync: illegal size of block: height=%d, size=%ld", height, block_sz);
@@ -342,7 +342,7 @@ int prefetch_blocks2(BitcoinRpcCtx *btc_rpc_ctx, BtcP2pProtoCtx *p2p_ctx, TXDB *
                     }
                 }
 
-                if (txdb_store_txs(dbptr, txs, txns, height)) {
+                if (txdb_bulk_store_txs(dbptr, txs, txns, height)) {
                     logerrf("block sync: error storing txs data");
                     assert(0);
                 }
@@ -354,7 +354,7 @@ int prefetch_blocks2(BitcoinRpcCtx *btc_rpc_ctx, BtcP2pProtoCtx *p2p_ctx, TXDB *
                 logerrf("block sync: error storing block headers");
                 assert(0);
             }
-            //logdebugf("stored block no=%ld", i);
+            logdebugf("stored block no=%ld", i);
 
             free(rawblock);
             dbptr->current_height++;
