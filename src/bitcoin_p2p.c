@@ -81,6 +81,8 @@
 
 #define MSG_BLOCK_STR "MSG_BLOCK"
 
+#define P2P_MSGHEADER_SIZE (sizeof(struct p2p_msg_header))
+
 PACKED_STRUCT p2p_msg_header {
     uint32_t start_string;
     char command_name[12];
@@ -140,11 +142,11 @@ int p2p_send_message(BtcP2pProtoCtx *ctx, const char *command_name, uint8_t *pay
     //check for errors
     if (send(ctx->sock_fd, &header, sizeof(header), 0) != sizeof(header)) {
         logdebugf("p2p error sending header: %s", strerror(errno));
-        return -1;
+        return -errno;
     }
     if (send(ctx->sock_fd, payload, payload_sz, 0) != payload_sz) {
         logdebugf("p2p error sending payload: %s", strerror(errno));
-        return -1;
+        return -errno;
     }
 
     return 0;
@@ -152,17 +154,19 @@ int p2p_send_message(BtcP2pProtoCtx *ctx, const char *command_name, uint8_t *pay
 
 int p2p_recv_header(BtcP2pProtoCtx *ctx, struct p2p_msg_header *header, const char *expected_cmd_name) 
 {
-    if (recv(ctx->sock_fd, header, sizeof(struct p2p_msg_header), 0) != sizeof(struct p2p_msg_header)) {
-        logdebugf("p2p recv error: %s", strerror(errno));
-        return -1;
-    } // check for errors...
+	switch (recv(ctx->sock_fd, header, sizeof(struct p2p_msg_header), 0)) {
+		case P2P_MSGHEADER_SIZE:
+			break;
+		default:
+			logdebugf("p2p recv header error: %s", strerror(errno));
+			return -1;
+	}
 #if (P2P_HEX_DEBUG == 1)
      print_array_hex("recv -> header", (uint8_t*) header, sizeof(struct p2p_msg_header));
 #endif
     //logdebugf("header message payload size == %ld", header->payload_sz);
 
     header->payload_sz = le32toh(header->payload_sz);
-
     return expected_cmd_name ? strcmp(header->command_name, expected_cmd_name) : 0;
 }
 
@@ -171,15 +175,26 @@ static inline int p2p_payload_recv(BtcP2pProtoCtx *ctx, uint8_t *bufp, size_t to
     ssize_t nrecv = 0;
     while (to_recv_sz) {
         nrecv = recv(ctx->sock_fd, bufp, to_recv_sz > 4096 ? 4096 : to_recv_sz, 0);
-        if (nrecv > 0) {
-            bufp += nrecv;
-            to_recv_sz -= nrecv;
-            if (to_recv_sz == 0)
-                break;
-        }
+		if (nrecv > 0) {
+			bufp += nrecv;
+			to_recv_sz -= nrecv;
+			if (to_recv_sz == 0) {
+				return  0;
+			}
+		} else if (nrecv == 0) {
+			if (to_recv_sz) {
+				logdebugf("%s: incomplete payload recv: need to get last %ld bytes", __func__, to_recv_sz);
+				return -2;
+			}
+			
+			return 0;
+		} else {
+			logdebugf("%s: %s", __func__, strerror(errno));
+			return -errno;
+		}
     }
 
-    return to_recv_sz ? -2 : 0;
+    return -2;
 }
 
 //https://en.bitcoin.it/wiki/Protocol_documentation#Message_structure
@@ -211,7 +226,7 @@ int p2p_connect(BtcP2pProtoCtx *ctx, int32_t height)
     }
 
     if (connect(fd, (struct sockaddr*) &sa, sa_len)) {
-        logdebugf("connection not established shit!");
+        logdebugf("connection not established!");
         goto p2p_connect_fail;
     }
 
