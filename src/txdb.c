@@ -38,7 +38,6 @@
 #include <errno.h>
 #include <sys/types.h>
 #include <sys/stat.h>
-#include <zlib.h>
 
 #include "logging.h"
 
@@ -46,19 +45,13 @@
 
 #define BDB_PAGE_SIZE (65536)
 
-/*
-  Need to account for proper buffer size,
-  The buffer must be at least as large as the page size of
-  the underlying database, aligned for unsigned integer
-  access, and be a multiple of 1024 bytes in size.
- */
-#define BULK_DBT_INIT(ptr, dbt, ksz) \
-memset(dbt, 0, sizeof(DBT));\
-(dbt)->ulen = (uint32_t) (ksz * 1024 >= BDB_PAGE_SIZE) ? ksz * 1024 : BDB_PAGE_SIZE;\
+#define UPDATES_PER_BULK_PUT (1000)
+#define BULK_DBT_INIT(dbt, sz, count) \
+memset((dbt), 0, sizeof(DBT));\
 (dbt)->flags = DB_DBT_USERMEM | DB_DBT_BULK;\
+(dbt)->ulen = (uint32_t) sz * count * 1024;\
 (dbt)->data = malloc((dbt)->ulen);\
 memset((dbt)->data, 0, (dbt)->ulen);\
-
 
 #define PARTITION_NUMBER (50) // never change this number!
 #define HEADERS_DB_FILE_NAME "headers.db"
@@ -66,6 +59,57 @@ memset((dbt)->data, 0, (dbt)->ulen);\
 #define TXINS_DB_FILE_NAME "txins.db"
 #define TXOUTS_DB_FILE_NAME "txouts.db"
 #define STATUS_FILE_NAME "status" //rename to dbstat
+
+/*
+ * Electrumd Database (TXDB) Structure Description
+ * 
+ * headers.db
+ *   - Key: height (4 bytes)
+ *   - Data: block_header (80 bytes)
+ *     This database stores block headers, where the key is the block height.
+ *     Each entry contains the full block header data, allowing quick access to block information by its height.
+ * 
+ * txhashes.db
+ *   - Key: height (4 bytes) + tx_index (2 bytes)
+ *   - Data: txid (32 bytes)
+ *     This database maps a transaction's height and index to its transaction ID (txid).
+ *     The key is a combination of the block height and the transaction index within that block, 
+ *     facilitating the lookup of a txid based on its position in the blockchain.
+ * 
+ * txins.db
+ *   - Key: prevout_hash_prefix (8 bytes)
+ *   - Data: height (8 bytes) + tx_index (2 bytes) + prev_out_index (2 bytes)
+ *     This database is used to lookup transaction inputs by the prefix of the previous output hash.
+ *     The data includes the block height, transaction index, and the previous output index, providing
+ *     details about the source of a transaction input.
+ * 
+ * txouts.db
+ *   - Key: scripthash_prefix (8 bytes)
+ *   - Data: txid_prefix (8 bytes) + value (8 bytes) + height (4 bytes) + tx_index (2 bytes) + tx_pos (2 bytes)
+ *     This database maps transaction outputs by a composite key that includes the scripthash prefix.
+ *     The data includes the txid prefix, value, height, transaction index, and position, allowing for efficient 
+ *     lookup of specific transaction outputs based on the scripthash.
+ */
+ 
+
+PACKED_STRUCT utxo_dbt {
+	uint8_t txid_prefix[8]; // the txid (easy lookup of the confirmed height (if confirmed))
+    int64_t value; // the amount
+    uint32_t height; //<<--- height at which utxo is located used to fetch txhash from db easily
+    uint16_t tx_index; // the index of the tx in which holds this output is in the block
+    uint16_t tx_pos; // the output position in the transaction outputs vec
+};
+
+PACKED_STRUCT txin_dbt {
+    uint32_t height; //<<--- height at which vin is located used to fetch txhash from db easily
+    uint16_t tx_index; // the index of the tx in which holds this input is in the block
+    uint16_t prev_out_index; // the index of the vout used in input
+};
+
+PACKED_STRUCT txhash_key {
+	uint32_t height; // block height in which tx is stored
+	uint16_t tx_index; // index of the tx inside the block
+};
 
 uint32_t db_partition_fn(DB *db, DBT *key)
 {
@@ -505,23 +549,17 @@ int txdb_lookup_txhash(TXDB *dbptr, uint8_t *tx_hash, uint32_t height, uint16_t 
     memset(&key, 0, sizeof(key));
     memset(&data, 0, sizeof(data));
 
-    key.data = &height;
-    key.size = sizeof(height);
+    struct txhash_key thkey;
+    thkey.height = height;
+    thkey.tx_index = tx_index;
+    key.data = &thkey;
+    key.size = sizeof(thkey);
 
     ret = dbptr->txhashes_ptr->get(dbptr->txhashes_ptr, NULL, &key, &data, 0);
     if (ret)
         return ret;
 
-    //for now are stored uncompressed //TODO -> zlib compression
-    size_t hashes_len = *((size_t*) data.data);
-    if (tx_index >= hashes_len)
-        return -1;
-
-    size_t pos = sizeof(size_t) + 32*tx_index;
-    if (pos + 32 > data.size)
-        return -2;
-
-    memcpy(tx_hash, ((uint8_t*) data.data) + pos, 32);
+    memcpy(tx_hash, data.data, 32);
 
     return 0;
 }
@@ -534,23 +572,18 @@ int txdb_lookup_txhashes_at_height(TXDB *dbptr, HashesVec *hashes, uint32_t heig
     memset(&key, 0, sizeof(key));
     memset(&data, 0, sizeof(data));
 
-    key.data = &height;
-    key.size = sizeof(height);
+	struct txhash_key thkey;
+	thkey.height = height;
+    key.data = &thkey;
+    key.size = sizeof(thkey);
 
-    ret = dbptr->txhashes_ptr->get(dbptr->txhashes_ptr, NULL, &key, &data, 0);
-    if (ret)
-        return ret;
-
-    //for now are stored uncompressed //TODO -> zlib compression
-    size_t i;
-    size_t hashes_len = *((size_t*) data.data);
-    if (!hashes_len)
-        return -1;
-
-    hashes_vec_reserve(hashes, hashes_len);
-    for (i = 0; i < hashes_len; i++) {
-        hashes_vec_add(hashes, ((uint8_t*) data.data) + sizeof(size_t) + i * 32);
-    }
+	for (thkey.tx_index = 0; thkey.tx_index < USHRT_MAX; thkey.tx_index++) {
+		ret = dbptr->txhashes_ptr->get(dbptr->txhashes_ptr, NULL, &key, &data, 0);
+		if (ret != DB_NOTFOUND)
+			return ret;
+			
+		hashes_vec_add(hashes, (uint8_t*) data.data);
+	}
 
     return 0;
 }
@@ -589,62 +622,70 @@ int txdb_store_txs(TXDB *dbptr, BtcTx *txs, size_t txs_sz, uint32_t height)
     struct utxo_dbt udbt;
     struct txin_dbt in_dbt;
     for (itx = 0; itx < txs_sz; itx++) {
-        BtcTx tx = txs[itx];
-
         assert(itx < USHRT_MAX);
 
         if (itx > 0) {
             /* We do not store coinbase tx inputs because a coinbase tx has dummy inputs */
-            for (i = 0; i < tx.tx_in_count; i++) {
-                assert(tx.tx_in[i].prev_out_index < USHRT_MAX);
+            for (i = 0; i < txs[itx].tx_in_count; i++) {
+                assert(txs[itx].tx_in[i].prev_out_index < USHRT_MAX);
 
                 memset(&in_dbt, 0, sizeof(struct txin_dbt));
                 in_dbt.height = height;
                 in_dbt.tx_index = (uint16_t) itx;
-                in_dbt.prev_out_index = (uint16_t) tx.tx_in[i].prev_out_index;
+                in_dbt.prev_out_index = (uint16_t) txs[itx].tx_in[i].prev_out_index;
 
-                if ((ret = db_put(dbptr->txins_ptr, tx.tx_in[i].prev_out_hash, 8, &in_dbt, sizeof(in_dbt)))) {
+                if ((ret = db_put(dbptr->txins_ptr, txs[itx].tx_in[i].prev_out_hash, 8, &in_dbt, sizeof(in_dbt)))) {
                     logerrf("txdb: error storing txins");
                     goto txdb_store_txs_end;
                 }
             }
         }
-
-        for (i = 0; i < tx.tx_out_count; i++) {
+    }
+    
+    for (itx = 0; itx < txs_sz; itx++) {
+		for (i = 0; i < txs[itx].tx_out_count; i++) {
             assert(i < USHRT_MAX);
 
             memset(&udbt, 0, sizeof(struct utxo_dbt));
-            udbt.value = tx.tx_out[i].value;
+            udbt.value = txs[itx].tx_out[i].value;
             udbt.height = height;
             udbt.tx_pos = (uint16_t) i;
             udbt.tx_index = (uint16_t) itx;
-            memcpy(udbt.txid_prefix, tx.txid, sizeof(udbt.txid_prefix));
+            memcpy(udbt.txid_prefix, txs[itx].txid, sizeof(udbt.txid_prefix));
 
-            if (tx.tx_out[i].pk_script_len > 0) {
-                if ((ret = db_put(dbptr->txouts_ptr, tx.tx_out[i].pk_script_hash, 8, &udbt, sizeof(udbt)))) {
+            if (txs[itx].tx_out[i].pk_script_len > 0) {
+                if ((ret = db_put(dbptr->txouts_ptr, txs[itx].tx_out[i].pk_script_hash, 8, &udbt, sizeof(udbt)))) {
                     logerrf("txdb: error storing txouts");
                     goto txdb_store_txs_end;
                 }
             }
         }
-    }
+	}
 
-    /*
-            Store uncompressed (for now) tx hashes array
-    */
-    size_t tx_hashes_ser_sz = (sizeof(size_t) + txs_sz * 32) * sizeof(uint8_t);
-    uint8_t *tx_hashes = (uint8_t*) malloc(tx_hashes_ser_sz);
-    memcpy(tx_hashes, &txs_sz, sizeof(size_t));
-    for (itx = 0; itx < txs_sz; itx++) {
-        memcpy(tx_hashes + sizeof(size_t) + itx * 32, txs[itx].txid, 32);
-    }
+    struct txhash_key thkey;
+    thkey.height = height;
+    for (thkey.tx_index = 0; thkey.tx_index < txs_sz; thkey.tx_index++) {
+		if ((ret = db_put(dbptr->txhashes_ptr, &thkey, sizeof(thkey), txs[thkey.tx_index].txid, 32))) {
+			goto txdb_store_txs_end;
+		}
+	}
 
-    ret = db_put(dbptr->txhashes_ptr, &height, sizeof(height), tx_hashes, tx_hashes_ser_sz);
-    free(tx_hashes);
 txdb_store_txs_end:
     return ret;
 }
 
+/*
+ * Need to account for proper buffer size,
+ * The buffer must be at least as large as the page size of
+ * the underlying database, aligned for unsigned integer
+ * access, and be a multiple of 1024 bytes in size.
+ */
+
+/*
+ * references to https://github.com/berkeleydb/libdb/blob/master/examples/c/ex_bulk.c
+ * Do not use bulk for now, using the UPDATES_PER_BULK_PUT makes it slower than not using it and
+ * preallocating the memory and putting alltogether makes the memory usage impact very high
+ * */
 int txdb_bulk_store_txs(TXDB *dbptr, BtcTx *txs, size_t txs_sz, uint32_t height)
 {
     if (!txs_sz) {
@@ -652,117 +693,146 @@ int txdb_bulk_store_txs(TXDB *dbptr, BtcTx *txs, size_t txs_sz, uint32_t height)
     }
 
     int ret = 0;
-    size_t itx, i;
+    size_t itx, i, bulkn;
 
-    size_t bulk_txins_len = 0;
-    size_t bulk_txouts_len = 0;
-
-    DB_TXN *txn = NULL;
-
-    void *txins_key_ptr = NULL;
-    void *txins_data_ptr = NULL;
-    DBT txins_key;
-    DBT txins_data;
-
-    void *txouts_key_ptr = NULL;
-    void *txouts_data_ptr = NULL;
-    DBT txouts_key;
-    DBT txouts_data;
-
-    //compute initial size for bulk data store
-    for (itx = 0; itx < txs_sz; itx++) {
-        bulk_txins_len += txs[itx].tx_in_count;
-        bulk_txouts_len += txs[itx].tx_out_count;
-    }
-
-//    if ((ret = dbptr->env_ptr->txn_begin(dbptr->env_ptr, NULL, &txn, 0))) {
-//        return ret;
-//    }
-
-    /*
-     * Need to account for proper buffer size,
-     * The buffer must be at least as large as the page size of
-     * the underlying database, aligned for unsigned integer
-     * access, and be a multiple of 1024 bytes in size.
-     */
-    BULK_DBT_INIT(txins_key_ptr, &txins_key, bulk_txins_len * 8);
-    BULK_DBT_INIT(txins_data_ptr, &txins_data, bulk_txins_len * sizeof(struct txin_dbt));
-
-    BULK_DBT_INIT(txouts_key_ptr, &txouts_key, bulk_txouts_len * 8);
-    BULK_DBT_INIT(txouts_data_ptr, &txouts_data, bulk_txouts_len * sizeof(struct utxo_dbt));
-
-    DB_MULTIPLE_WRITE_INIT(txins_key_ptr, &txins_key);
-    DB_MULTIPLE_WRITE_INIT(txins_data_ptr, &txins_data);
-
-    DB_MULTIPLE_WRITE_INIT(txouts_key_ptr, &txouts_key);
-    DB_MULTIPLE_WRITE_INIT(txouts_data_ptr, &txouts_data);
-
+    void *ptrk = NULL;
+    void *ptrd = NULL;
+    DBT key;
+    DBT data;
+    
     struct utxo_dbt udbt;
     struct txin_dbt in_dbt;
-    for (itx = 0; itx < txs_sz; itx++) {
-        BtcTx tx = txs[itx];
+    struct txhash_key thkey;
+    
+    BULK_DBT_INIT(&key, 8, UPDATES_PER_BULK_PUT);
+    BULK_DBT_INIT(&data, sizeof(in_dbt), UPDATES_PER_BULK_PUT);
 
+	DB_MULTIPLE_WRITE_INIT(ptrk, &key);
+	DB_MULTIPLE_WRITE_INIT(ptrd, &data);
+
+    
+    for (itx = 0; itx < txs_sz; itx++) {
         assert(itx < USHRT_MAX);
         if (itx > 0) {
             /* We do not store coinbase tx inputs because a coinbase tx has dummy inputs */
-            for (i = 0; i < tx.tx_in_count; i++) {
-                assert(tx.tx_in[i].prev_out_index < USHRT_MAX);
+            for (i = 0; i < txs[itx].tx_in_count; i++) {
+                assert(txs[itx].tx_in[i].prev_out_index < USHRT_MAX);
 
-                DB_MULTIPLE_WRITE_NEXT(txins_key_ptr, &txins_key, tx.tx_in[i].prev_out_hash, 8);
-
-                memset(&in_dbt, 0, sizeof(struct txin_dbt));
+                DB_MULTIPLE_WRITE_NEXT(ptrk, &key, txs[itx].tx_in[i].prev_out_hash, 8);
 
                 in_dbt.height = height;
                 in_dbt.tx_index = (uint16_t) itx;
-                in_dbt.prev_out_index = (uint16_t) tx.tx_in[i].prev_out_index;
-                DB_MULTIPLE_WRITE_NEXT(txins_data_ptr, &txins_data, &in_dbt, sizeof(in_dbt));
+                in_dbt.prev_out_index = (uint16_t) txs[itx].tx_in[i].prev_out_index;
+                DB_MULTIPLE_WRITE_NEXT(ptrd, &data, &in_dbt, sizeof(in_dbt));
+                
+                bulkn++;
+                if (bulkn % UPDATES_PER_BULK_PUT == 0) {
+					if ((ret = dbptr->txins_ptr->put(dbptr->txins_ptr, NULL, &key, &data, DB_MULTIPLE))) {
+						logerrf("txdb: error storing txins");
+						goto txdb_store_txs_end;
+					}
+					
+					DB_MULTIPLE_WRITE_INIT(ptrk, &key);
+					DB_MULTIPLE_WRITE_INIT(ptrd, &data);
+					bulkn = 0;
+				}
             }
         }
+    }
+    
+    if (bulkn % UPDATES_PER_BULK_PUT) {
+		if ((ret = dbptr->txins_ptr->put(dbptr->txins_ptr, NULL, &key, &data, DB_MULTIPLE))) {
+			logerrf("txdb: error storing txins");
+			goto txdb_store_txs_end;
+		}
+	}
+    
+    free(key.data);
+    free(data.data);
+    
+    BULK_DBT_INIT(&key, 8, UPDATES_PER_BULK_PUT);
+    BULK_DBT_INIT(&data, sizeof(udbt), UPDATES_PER_BULK_PUT);
 
-        for (i = 0; i < tx.tx_out_count; i++) {
+	DB_MULTIPLE_WRITE_INIT(ptrk, &key);
+	DB_MULTIPLE_WRITE_INIT(ptrd, &data);
+
+    bulkn = 0;
+    for (itx = 0; itx < txs_sz; itx++) {
+		for (i = 0; i < txs[itx].tx_out_count; i++) {
             assert(i < USHRT_MAX);
 
-            memset(&udbt, 0, sizeof(struct utxo_dbt));
-            udbt.value = tx.tx_out[i].value;
+            udbt.value = txs[itx].tx_out[i].value;
             udbt.height = height;
             udbt.tx_pos = (uint16_t) i;
             udbt.tx_index = (uint16_t) itx;
-            memcpy(udbt.txid_prefix, tx.txid, sizeof(udbt.txid_prefix));
+            memcpy(udbt.txid_prefix, txs[itx].txid, sizeof(udbt.txid_prefix));
 
-            if (tx.tx_out[i].pk_script_len > 0) {
-                DB_MULTIPLE_WRITE_NEXT(txouts_key_ptr, &txouts_key, tx.tx_out[i].pk_script_hash, 8);
-                DB_MULTIPLE_WRITE_NEXT(txouts_data_ptr, &txouts_data, &udbt, sizeof(udbt));
+            if (txs[itx].tx_out[i].pk_script_len > 0) {
+                DB_MULTIPLE_WRITE_NEXT(ptrk, &key, txs[itx].tx_out[i].pk_script_hash, 8);
+                DB_MULTIPLE_WRITE_NEXT(ptrd, &data, &udbt, sizeof(udbt));
+                
+                bulkn++;
             }
+            
+			if (bulkn % UPDATES_PER_BULK_PUT == 0) {
+				if ((ret = dbptr->txouts_ptr->put(dbptr->txouts_ptr, NULL, &key, &data, DB_MULTIPLE))) {
+					logerrf("txdb: error storing txouts");
+					goto txdb_store_txs_end;
+				}
+				
+				DB_MULTIPLE_WRITE_INIT(ptrk, &key);
+				DB_MULTIPLE_WRITE_INIT(ptrd, &data);
+				bulkn = 0;
+			}
         }
-    }
+	}
 
-    if ((ret = dbptr->txins_ptr->put(dbptr->txins_ptr, txn, &txins_key, &txins_data, DB_MULTIPLE))) {
-        logerrf("txdb: error storing txins");
-        goto txdb_store_txs_end;
+    if (bulkn % UPDATES_PER_BULK_PUT) {
+		if ((ret = dbptr->txouts_ptr->put(dbptr->txouts_ptr, NULL, &key, &data, DB_MULTIPLE))) {
+			logerrf("txdb: error storing txouts");
+			goto txdb_store_txs_end;
+		}
     }
-    if ((ret = dbptr->txouts_ptr->put(dbptr->txouts_ptr, txn, &txouts_key, &txouts_data, DB_MULTIPLE))) {
-        logerrf("txdb: error storing txouts");
-        goto txdb_store_txs_end;
-    }
+    
+    
+    free(key.data);
+    free(data.data);
+    
+    BULK_DBT_INIT(&key, sizeof(thkey), UPDATES_PER_BULK_PUT);
+    BULK_DBT_INIT(&data, 32, UPDATES_PER_BULK_PUT);
 
-    /*
-            Store uncompressed (for now) tx hashes array
-    */
-    size_t tx_hashes_ser_sz = (sizeof(size_t) + txs_sz * 32) * sizeof(uint8_t);
-    uint8_t *tx_hashes = (uint8_t*) malloc(tx_hashes_ser_sz);
-    memcpy(tx_hashes, &txs_sz, sizeof(size_t));
-    for (itx = 0; itx < txs_sz; itx++) {
-        memcpy(tx_hashes + sizeof(size_t) + itx * 32, txs[itx].txid, 32);
-    }
+ 	DB_MULTIPLE_WRITE_INIT(ptrk, &key);
+	DB_MULTIPLE_WRITE_INIT(ptrd, &data);   
 
-    ret = db_put(dbptr->txhashes_ptr, &height, sizeof(height), tx_hashes, tx_hashes_ser_sz);
-    free(tx_hashes);
+    thkey.height = height;
+    bulkn = 0;
+    for (thkey.tx_index = 0; thkey.tx_index < txs_sz; thkey.tx_index++) {
+		DB_MULTIPLE_WRITE_NEXT(ptrk, &key, &thkey, sizeof(thkey));
+		DB_MULTIPLE_WRITE_NEXT(ptrd, &data, txs[thkey.tx_index].txid, 32);
+		
+		bulkn++;
+		if (bulkn % UPDATES_PER_BULK_PUT == 0) {
+			if ((ret = dbptr->txhashes_ptr->put(dbptr->txhashes_ptr, NULL, &key, &data, DB_MULTIPLE))) {
+				logerrf("txdb: error storing txhashes");
+				goto txdb_store_txs_end;
+			}
+			
+			DB_MULTIPLE_WRITE_INIT(ptrk, &key);
+			DB_MULTIPLE_WRITE_INIT(ptrd, &data);
+			bulkn = 0;
+		}
+	}
+	
+	if (bulkn % UPDATES_PER_BULK_PUT) {
+		if ((ret = dbptr->txhashes_ptr->put(dbptr->txhashes_ptr, NULL, &key, &data, DB_MULTIPLE))) {
+			logerrf("txdb: error storing txhashes");
+			goto txdb_store_txs_end;
+		}
+	}
 
 txdb_store_txs_end:
-    free(txins_key.data);
-    free(txins_data.data);
-    free(txouts_key.data);
-    free(txouts_data.data);
+    free(key.data);
+    free(data.data);
 
     return ret;
 }

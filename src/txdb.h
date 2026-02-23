@@ -47,20 +47,6 @@
 #define TXDB_UNSPENT 0x00000001
 #define TXDB_SPENT   0x00000002
 
-PACKED_STRUCT utxo_dbt {
-    int64_t value; // the amount
-    uint32_t height; //<<--- height at which utxo is located used to fetch txhash from db easily
-    uint16_t tx_index; // the index of the tx in which holds this output is in the block
-    uint16_t tx_pos; // the output position in the transaction outputs vec
-    uint8_t txid_prefix[8]; // the txid (easy lookup of the confirmed height (if confirmed))
-};
-
-PACKED_STRUCT txin_dbt {
-    uint32_t height; //<<--- height at which vin is located used to fetch txhash from db easily
-    uint16_t tx_index; // the index of the tx in which holds this input is in the block
-    uint16_t prev_out_index; // the index of the vout used in input
-};
-
 typedef struct {
     int64_t value;
     uint8_t txid_prefix[8];
@@ -77,17 +63,6 @@ typedef struct {
     uint16_t tx_index;
 } HistoryItem;
 
-/*
-    txDB structure:
-    * txs.db:
-      | tx_hash prefix (8bytes)      | height (uint32_t) |
-
-    * txins.db
-      | prevout_hash_prefix (8bytes) | confirmed height  |
-
-    * txouts.db
-      | SHA256(scripthash) (8bytes)  | utxo_dbt          |
-*/
 typedef struct {
     char db_dir[512];
     long current_height;
