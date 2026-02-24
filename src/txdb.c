@@ -560,7 +560,6 @@ int txdb_lookup_txhash(TXDB *dbptr, uint8_t *tx_hash, uint32_t height, uint16_t 
         return ret;
 
     memcpy(tx_hash, data.data, 32);
-
     return 0;
 }
 
@@ -579,11 +578,14 @@ int txdb_lookup_txhashes_at_height(TXDB *dbptr, HashesVec *hashes, uint32_t heig
 
 	for (thkey.tx_index = 0; thkey.tx_index < USHRT_MAX; thkey.tx_index++) {
 		ret = dbptr->txhashes_ptr->get(dbptr->txhashes_ptr, NULL, &key, &data, 0);
-		if (ret != DB_NOTFOUND)
-			return ret;
-			
-		hashes_vec_add(hashes, (uint8_t*) data.data);
+        if (ret)
+            break;
+
+        hashes_vec_add(hashes, (uint8_t*) data.data);
 	}
+
+    if (ret != DB_NOTFOUND)
+        return ret;
 
     return 0;
 }
