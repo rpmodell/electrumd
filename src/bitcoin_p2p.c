@@ -81,8 +81,6 @@
 
 #define MSG_BLOCK_STR "MSG_BLOCK"
 
-#define P2P_MSGHEADER_SIZE (sizeof(struct p2p_msg_header))
-
 PACKED_STRUCT p2p_msg_header {
     uint32_t start_string;
     char command_name[12];
@@ -154,12 +152,9 @@ int p2p_send_message(BtcP2pProtoCtx *ctx, const char *command_name, uint8_t *pay
 
 int p2p_recv_header(BtcP2pProtoCtx *ctx, struct p2p_msg_header *header, const char *expected_cmd_name) 
 {
-	switch (recv(ctx->sock_fd, header, sizeof(struct p2p_msg_header), 0)) {
-		case P2P_MSGHEADER_SIZE:
-			break;
-		default:
-			logdebugf("p2p recv header error: %s", strerror(errno));
-			return -1;
+    if (recv(ctx->sock_fd, header, sizeof(struct p2p_msg_header), 0) != sizeof(struct p2p_msg_header)) {
+        logdebugf("p2p recv header error: %s", strerror(errno));
+        return -1;
 	}
 #if (P2P_HEX_DEBUG == 1)
      print_array_hex("recv -> header", (uint8_t*) header, sizeof(struct p2p_msg_header));
@@ -175,23 +170,20 @@ static inline int p2p_payload_recv(BtcP2pProtoCtx *ctx, uint8_t *bufp, size_t to
     ssize_t nrecv = 0;
     while (to_recv_sz) {
         nrecv = recv(ctx->sock_fd, bufp, to_recv_sz > 4096 ? 4096 : to_recv_sz, 0);
-		if (nrecv > 0) {
-			bufp += nrecv;
-			to_recv_sz -= nrecv;
-			if (to_recv_sz == 0) {
-				return  0;
-			}
-		} else if (nrecv == 0) {
-			if (to_recv_sz) {
-				logdebugf("%s: incomplete payload recv: need to get last %ld bytes", __func__, to_recv_sz);
-				return -2;
-			}
-			
-			return 0;
-		} else {
-			logdebugf("%s: %s", __func__, strerror(errno));
-			return -errno;
-		}
+        switch (nrecv) {
+        case -1:
+            logdebugf("%s: %s", __func__, strerror(errno));
+            return -errno;
+        case 0:
+            return -2;
+        default:
+            bufp += nrecv;
+            to_recv_sz -= nrecv;
+            if (to_recv_sz == 0)
+                return  0;
+
+            break;
+        }
     }
 
     return -2;
@@ -321,28 +313,6 @@ int p2p_wait_recv_message(BtcP2pProtoCtx *ctx, struct p2p_msg_header *header, co
     return ret;
 }
 
-int p2p_recv_next_message(BtcP2pProtoCtx *ctx, struct p2p_msg_header *header)
-{
-    int ret = 0;
-    while (ret == 0) {
-        ret = p2p_recv_header(ctx, header, NULL);
-
-        if (!strcmp(header->command_name, "ping")) {
-            uint64_t nonce = 0;
-            if (recv(ctx->sock_fd, &nonce, sizeof(nonce), 0) != sizeof(nonce)) {
-                //node is behaving wrongly
-                logdebugf("ping: node is behaving wrongly");
-                continue;
-            }
-            p2p_send_message(ctx, "pong", (uint8_t*) &nonce, sizeof(nonce));
-        } else {
-            return 0;
-        }
-    }
-
-    return 1;
-}
-
 int p2p_ping(BtcP2pProtoCtx *ctx)
 {
     int ret = 0;
@@ -366,127 +336,18 @@ int p2p_ping(BtcP2pProtoCtx *ctx)
     return -(nonce_a != nonce_b);
 }
 
-// https://developer.bitcoin.org/reference/p2p_networking.html
-int p2p_get_block(BtcP2pProtoCtx *ctx, const uint8_t *blkhash, uint8_t **rawblock, size_t *block_sz)
-{
-    /*
-    getdata
-
-    getdata is used in response to inv, to retrieve the content of a specific object, and is usually sent after receiving an inv packet, after filtering known elements. It can be used to retrieve transactions, but only if they are in the memory pool or relay set - arbitrary access to transactions in the chain is not allowed to avoid having clients start to depend on nodes having full transaction indexes (which modern nodes do not).
-
-    Payload (maximum 50,000 entries, which is just over 1.8 megabytes):
-    Field Size 	Description 	Data type 	Comments
-    1+ 	count 	var_int 	Number of inventory entries
-    36x? 	inventory 	inv_vect[] 	Inventory vectors
-    */
-
-    uint32_t ivt = htole32(MSG_WITNESS_BLOCK);
-
-    size_t msg_len = MAX_VARINT_SZ + sizeof(ivt) + 32;
-    uint8_t *msgbuf = (uint8_t*) malloc(msg_len * sizeof(uint8_t));
-    uint8_t *msgbufp = msgbuf;
-
-    msgbufp += btc_write_varint(msgbuf, 1); // one or more blocks at a time -> decide later for now 1
-
-    memcpy(msgbufp, &ivt, sizeof(ivt));
-    msgbufp += sizeof(ivt);
-
-    memcpy(msgbufp, blkhash, 32);
-    msgbufp += 32;
-
-    int ret = 0;
-    if ((ret = p2p_send_message(ctx, MSG_CMD_GETDATA, msgbuf, (msgbufp - msgbuf)))) {
-        goto getblock_end;
-    }
-
-    /*
-        block
-
-        The block message is sent in response to a getdata message which requests transaction information from a block hash.
-        Field Size 	Description 	Data type 	Comments
-        4 	version 	int32_t 	Block version information (note, this is signed)
-        32 	prev_block 	char[32] 	The hash value of the previous block this particular block references
-        32 	merkle_root 	char[32] 	The reference to a Merkle tree collection which is a hash of all transactions related to this block
-        4 	timestamp 	uint32_t 	A Unix timestamp recording when this block was created (Currently limited to dates before the year 2106!)
-        4 	bits 	uint32_t 	The calculated difficulty target being used for this block
-        4 	nonce 	uint32_t 	The nonce used to generate this block… to allow variations of the header and compute different hashes
-        1+ 	txn_count 	var_int 	Number of transaction entries
-        ? 	txns 	tx[] 	Block transactions, in format of "tx" command
-
-        The SHA256 hash that identifies each block (and which must have a run of 0 bits)
-         is calculated from the first 6 fields of this structure (version, prev_block, merkle_root,
-        timestamp, bits, nonce, and standard SHA256 padding, making two 64-byte chunks in all) and not
-        from the complete block. To calculate the hash, only two chunks need to be processed by the
-        SHA256 algorithm. Since the nonce field is in the second chunk, the first chunk stays constant
-        during mining and therefore only the second chunk needs to be processed. However,
-         a Bitcoin hash is the hash of the hash, so two SHA256 rounds are needed for each mining iteration.
-        See Block hashing algorithm for details and an example.
-    */
-
-    //receive the message
-    struct p2p_msg_header header;
-    size_t nrecv = 0;
-    while ((ret = p2p_recv_next_message(ctx, &header)) == 0) {
-        //expected message
-        if (!strcmp(header.command_name, MSG_CMD_BLOCK)) {
-            *rawblock = (uint8_t*) malloc(header.payload_sz * sizeof(uint8_t));
-
-            *block_sz = 0;
-            while ((nrecv = recv(ctx->sock_fd, *rawblock + *block_sz, header.payload_sz, 0)) > 0) {
-                *block_sz += nrecv;
-                if (*block_sz == header.payload_sz) {
-                    break;
-                }
-            }
-            if (*block_sz != header.payload_sz) {
-                free(*rawblock);
-                ret = -1;
-                goto getblock_end;
-            }
-
-            //print_array_hex("getdata response", *rawblock, header.payload_sz);
-            ret = 0;
-            goto getblock_end;
-        }
-
-        // for other messages read payload and wait for new headers
-        if (msg_len < header.payload_sz) {
-            while (msg_len < header.payload_sz)
-                msg_len *= 2;
-
-            msgbuf = realloc(msgbuf, msg_len);
-        }
-        if (recv(ctx->sock_fd, msgbuf, header.payload_sz, 0) != header.payload_sz) {
-            ret = -1;
-            goto getblock_end;
-        }
-
-        if (!strcmp(header.command_name, MSG_CMD_NOTFOUND)) {
-            logdebugf("p2p: notfound response to getdata: block_hash=%s", blkhash);
-            ret = -2;
-            goto getblock_end;
-        }
-    }
-
-getblock_end:
-    free(msgbuf);
-
-    return ret;
-}
-
+/*
+ * getdata
+ *
+ * getdata is used in response to inv, to retrieve the content of a specific object, and is usually sent after receiving an inv packet, after filtering known elements. It can be used to retrieve transactions, but only if they are in the memory pool or relay set - arbitrary access to transactions in the chain is not allowed to avoid having clients start to depend on nodes having full transaction indexes (which modern nodes do not).
+ *
+ * Payload (maximum 50,000 entries, which is just over 1.8 megabytes):
+ * Field Size 	Description 	Data type 	Comments
+ * 1+ 	count 	var_int 	Number of inventory entries
+ * 36x? 	inventory 	inv_vect[] 	Inventory vectors
+*/
 int p2p_get_data(BtcP2pProtoCtx *ctx, uint8_t **blkhashes, size_t hashes_sz, uint32_t ivt)
 {
-    /*
-    getdata
-
-    getdata is used in response to inv, to retrieve the content of a specific object, and is usually sent after receiving an inv packet, after filtering known elements. It can be used to retrieve transactions, but only if they are in the memory pool or relay set - arbitrary access to transactions in the chain is not allowed to avoid having clients start to depend on nodes having full transaction indexes (which modern nodes do not).
-
-    Payload (maximum 50,000 entries, which is just over 1.8 megabytes):
-    Field Size 	Description 	Data type 	Comments
-    1+ 	count 	var_int 	Number of inventory entries
-    36x? 	inventory 	inv_vect[] 	Inventory vectors
-    */
-
     ivt = htole32(ivt);
 
     size_t msg_len = MAX_VARINT_SZ + (sizeof(ivt) + 32) * hashes_sz;
@@ -544,25 +405,25 @@ int p2p_receive_message(BtcP2pProtoCtx *ctx, uint8_t **rawpayload, size_t *paylo
     return 0;
 }
 
-// getblocks
-
-// Return an inv packet containing the list of blocks starting right after the last known hash in the block locator object, up to hash_stop or 500 blocks, whichever comes first.
-
-// The locator hashes are processed by a node in the order as they appear in the message. If a block hash is found in the node's main chain, the list of its children is returned back via the inv message and the remaining locators are ignored, no matter if the requested limit was reached, or not.
-
-// To receive the next blocks hashes, one needs to issue getblocks again with a new block locator object. Keep in mind that some clients may provide blocks which are invalid if the block locator object contains a hash on the invalid branch.
-
-// Payload:
-// Field Size 	Description 	Data type 	Comments
-// 4 	version 	uint32_t 	the protocol version
-// 1+ 	hash count 	var_int 	number of block locator hash entries
-// 32+ 	block locator hashes 	char[32] 	block locator object; newest back to genesis block (dense to start, but then sparse)
-// 32 	hash_stop 	char[32] 	hash of the last desired block; set to zero to get as many blocks as possible (500)
-
-// To create the block locator hashes, keep pushing hashes until you go back to the genesis block. After pushing 10 hashes back, the step backwards doubles every loop:
-
-long p2p_get_blocks(BtcP2pProtoCtx *ctx, uint8_t **blkhash, size_t blkhash_sz, const uint8_t *stophash)
+/*
+ * getheaders
+ *
+ * Return a headers packet containing the headers of blocks starting right after the last known hash in the block
+ * locator object, up to hash_stop or 2000 blocks, whichever comes first. To receive the next block headers, one needs
+ * to issue getheaders again with a new block locator object. Keep in mind that some clients may provide headers of blocks
+ * which are invalid if the block locator object contains a hash on the invalid branch.
+ * Payload:
+ * Field Size 	Description 	Data type 	Comments
+ * 4 	version 	uint32_t 	the protocol version
+ * 1+ 	hash count 	var_int 	number of block locator hash entries
+ * 32+ 	block locator hashes 	char[32] 	block locator object; newest back to genesis block (dense to start, but then sparse)
+ * 32 	hash_stop 	char[32] 	hash of the last desired block header; set to zero to get as many blocks as possible (2000)
+*/
+int p2p_get_headers_heashes(BtcP2pProtoCtx *ctx, HashesVec *out_hashes, uint8_t **blkhash, size_t blkhash_sz, const uint8_t *stophash)
 {
+    size_t i;
+    ssize_t ret = 0;
+
     uint32_t version = htole32(BTC_PROTOCOL_VERSION);
 
     size_t msg_len = MAX_VARINT_SZ + sizeof(version) + 32 + blkhash_sz * 32;
@@ -572,86 +433,19 @@ long p2p_get_blocks(BtcP2pProtoCtx *ctx, uint8_t **blkhash, size_t blkhash_sz, c
     memcpy(msgbufp, &version, sizeof(version));
     msgbufp += sizeof(version);
 
-    logdebugf("blkhash_sz == %ld", blkhash_sz);
     msgbufp += btc_write_varint(msgbufp, blkhash_sz); // one or more blocks at a time -> decide later for now 1
-
-    size_t i;
     for (i = 0; i < blkhash_sz; i++) {
         memcpy(msgbufp, blkhash[i], 32);
         msgbufp += 32;
     }
 
-    memset(msgbufp, 0, 32);
-     if (stophash) {
-         memcpy(msgbufp, stophash, 32);
-     }
-
-     msgbufp += 32;
-
-    int ret = 0;
-    if ((ret = p2p_send_message(ctx, "getblocks", msgbuf, msgbufp - msgbuf))) {
-        goto getblock_end2;
+    if (stophash) {
+       memcpy(msgbufp, stophash, 32);
+    } else {
+        memset(msgbufp, 0, 32);
     }
 
-    //receive the message
-    struct p2p_msg_header header;
-    if ((ret = p2p_wait_recv_message(ctx, &header, MSG_CMD_INV))) {
-        goto getblock_end2;
-    }
-    
-    free(msgbuf);
-    msg_len = 0;
-    msgbuf = (uint8_t*) malloc(header.payload_sz * sizeof(uint8_t));
-
-    if (p2p_payload_recv(ctx, msgbuf, header.payload_sz)) {
-        goto getblock_end2;
-    }
-
-    uint64_t new_blocks_sz = 0;
-    btc_read_varint(msgbuf, &new_blocks_sz);
-    logdebugf("p2p: gonna recv %ld new blocks!", new_blocks_sz);
-
-    //send getdata with received inv
-    if ((ret = p2p_send_message(ctx, MSG_CMD_GETDATA, msgbuf, header.payload_sz))) {
-        goto getblock_end2;
-    }
-
-    ret = new_blocks_sz;
-
-getblock_end2:
-    logdebugf("RET = %d", ret);
-    free(msgbuf);
-    return ret;
-}
-
-long p2p_get_headers_heashes(BtcP2pProtoCtx *ctx, HashesVec *out_hashes, uint8_t **blkhash, size_t blkhash_sz, const uint8_t *stophash)
-{
-    uint32_t version = htole32(BTC_PROTOCOL_VERSION);
-
-    size_t msg_len = MAX_VARINT_SZ + sizeof(version) + 32 + blkhash_sz * 32;
-    uint8_t *msgbuf = (uint8_t*) malloc(msg_len * sizeof(uint8_t));
-    uint8_t *msgbufp = msgbuf;
-
-    memcpy(msgbufp, &version, sizeof(version));
-    msgbufp += sizeof(version);
-
-    logdebugf("blkhash_sz == %ld", blkhash_sz);
-    msgbufp += btc_write_varint(msgbufp, blkhash_sz); // one or more blocks at a time -> decide later for now 1
-
-    size_t i;
-    for (i = 0; i < blkhash_sz; i++) {
-        memcpy(msgbufp, blkhash[i], 32);
-        msgbufp += 32;
-    }
-
-    memset(msgbufp, 0, 32);
-     if (stophash) {
-         memcpy(msgbufp, stophash, 32);
-     }
-
-     msgbufp += 32;
-
-    int ret = 0;
+    msgbufp += 32;
     if ((ret = p2p_send_message(ctx, "getheaders", msgbuf, msgbufp - msgbuf))) {
         goto get_headers_heashes_end;
     }
@@ -663,7 +457,6 @@ long p2p_get_headers_heashes(BtcP2pProtoCtx *ctx, HashesVec *out_hashes, uint8_t
     }
 
     free(msgbuf);
-    msg_len = 0;
     msgbuf = (uint8_t*) malloc(header.payload_sz * sizeof(uint8_t));
     msgbufp = msgbuf;
 
@@ -671,27 +464,20 @@ long p2p_get_headers_heashes(BtcP2pProtoCtx *ctx, HashesVec *out_hashes, uint8_t
         goto get_headers_heashes_end;
     }
 
-    uint64_t tx_count, heades_sz = 0;
-    msgbufp += btc_read_varint(msgbufp, &heades_sz);
-    logdebugf("p2p: gonna recv %ld new headers!", heades_sz);
+    uint64_t tx_count, headers_sz = 0;
+    msgbufp += btc_read_varint(msgbufp, &headers_sz);
 
-    for (i = 0; i < heades_sz; i++) {
-//        if ((msgbufp - msgbuf) < BLOCK_HEADER_SIZE) {
-//            ret = -4;
-//            goto get_headers_heashes_end;
-//        }
-
+    hashes_vec_reserve(out_hashes, headers_sz);
+    for (i = 0; i < headers_sz; i++) {
         long pos = hashes_vec_add(out_hashes, NULL);
         double_sha256(out_hashes->v[pos], msgbufp, BLOCK_HEADER_SIZE);
         msgbufp += BLOCK_HEADER_SIZE;
+
+        // do not care about tx_count readed but not used
         msgbufp += btc_read_varint(msgbufp, &tx_count);
-        fprintf(stderr, "header[%ld] -> unuseful tx_count is %ld\n", i, tx_count);
     }
 
-    ret = 0;
-
 get_headers_heashes_end:
-    logdebugf("RET = %d", ret);
     free(msgbuf);
     return ret;
 }

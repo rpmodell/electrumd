@@ -45,7 +45,7 @@
 #define MSG_CMD_BLOCK "block"
 #define MSG_CMD_TX "tx"
 
-#define P2P_GETBLOCKS_MAX 500
+#define P2P_INV_MAX_SIZE 500
 
 typedef struct {
     char *addr;
@@ -62,8 +62,7 @@ int p2p_ping(BtcP2pProtoCtx *ctx);
 int p2p_get_data(BtcP2pProtoCtx *ctx, uint8_t **blkhashes, size_t hashes_sz, uint32_t ivt);
 int p2p_receive_message(BtcP2pProtoCtx *ctx, uint8_t **rawblock, size_t *block_sz, const char *cmd);
 
-int p2p_get_block(BtcP2pProtoCtx *ctx, const uint8_t *blkhashes, uint8_t **rawblock, size_t *block_sz);
-long p2p_get_blocks(BtcP2pProtoCtx *ctx, uint8_t **blkhash, size_t blkhash_sz, const uint8_t *stophash);
-long p2p_get_headers_heashes(BtcP2pProtoCtx *ctx, HashesVec *out_hashes, uint8_t **blkhash, size_t blkhash_sz, const uint8_t *stophash);
+/* Can return up to 2000 hashes */
+int p2p_get_headers_heashes(BtcP2pProtoCtx *ctx, HashesVec *out_hashes, uint8_t **blkhash, size_t blkhash_sz, const uint8_t *stophash);
 
 #endif
