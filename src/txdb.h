@@ -37,7 +37,7 @@
 #ifdef __FreeBSD__
 #include <db5/db.h>
 #else
-#include <db.h>
+#include <leveldb/c.h>
 #endif
 
 #include "util.h"
@@ -63,14 +63,20 @@ typedef struct {
     uint16_t tx_index;
 } HistoryItem;
 
+struct dbi {
+	leveldb_t *db;
+	leveldb_options_t *opts;
+	leveldb_readoptions_t *ropts;
+    leveldb_writeoptions_t *wopts;
+};
+
 typedef struct {
     char db_dir[512];
     long current_height;
-    DB_ENV *env_ptr;
-    DB *headers_ptr;
-    DB *txhashes_ptr;
-    DB *txins_ptr; // key txindex (outpoint hash prefix) hash first 8 bytes, value height
-    DB *txouts_ptr; // key outpoint first 8 bytes, value utxo_dbt
+    struct dbi headers_ptr;
+    struct dbi txhashes_ptr;
+    struct dbi txins_ptr; // key txindex (outpoint hash prefix) hash first 8 bytes, value height
+    struct dbi txouts_ptr; // key outpoint first 8 bytes, value utxo_dbt
 } TXDB;
 
 /**
@@ -90,7 +96,7 @@ int txdb_open(TXDB *dbptr, const char *db_dir, unsigned int cache_size, long sta
  * @param dbptr Pointer to a TXDB structure that will hold the database handle.
  * @return 0 on success, non-zero error code on failure.
  */
-size_t txdb_close(TXDB *dbptr);
+int txdb_close(TXDB *dbptr);
 
 /**
  * Flushes the db to disk.
@@ -165,6 +171,6 @@ int txdb_bulk_store_txs(TXDB *dbptr, BtcTx *txs, size_t txs_sz, uint32_t height)
 
 //int db_init_open(DB **dbp, const char *db_path);
 //int db_put(DB *dbp, const char *key, size_t key_sz, void *data, size_t data_sz);
-int db_get(DB *dbp, const char *key, size_t key_sz, DBT *data_ptr);
+int db_get(struct dbi *dbp, const void *key, size_t key_sz, void *data_ptr, size_t data_sz);
 
 #endif

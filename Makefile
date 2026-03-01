@@ -1,7 +1,7 @@
 CC = cc
 CFLAGS = -g -std=c99 -D_DEFAULT_SOURCE -O0 -Wall -pedantic -I/usr/include/db5.3/ -I/usr/local/include/
 
-LDFLAGS = -lcurl -lpthread -ldb-5.3 -lcrypto -lm -L/usr/local/lib/
+LDFLAGS = -lcurl -lpthread -lleveldb -lcrypto -lm -L/usr/local/lib/
 
 SOURCES_DIR=src/
 
