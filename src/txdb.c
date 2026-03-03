@@ -53,6 +53,8 @@
 #define TXOUTS_DB_FILE_NAME "txouts.db"
 #define STATUS_FILE_NAME "status" //rename to dbstat
 
+#define CREATE_ITERATOR(DBI) leveldb_create_iterator((DBI).db, (DBI).ropts)
+
 /*
  * Electrumd Database (TXDB) Structure Description
  * 
@@ -295,6 +297,28 @@ int db_get(struct dbi *db, const void *key, size_t key_sz, void *data_ptr, size_
     return 0;
 }
 
+static leveldb_iterator_t *create_iterator_at(struct dbi *db, const void *key, size_t key_sz)
+{
+    char *err = NULL;
+    leveldb_iterator_t *iter = leveldb_create_iterator(db->db, db->ropts);
+    leveldb_iter_seek(iter, (char*) key, key_sz);
+    leveldb_iter_get_error(iter, &err);
+    if (err) {
+        logdebugf("txdb create iter error: %s", err);
+        leveldb_free(err);
+        leveldb_iter_destroy(iter);
+        return NULL;
+    }
+
+    leveldb_free(err);
+    if (!leveldb_iter_valid(iter)) {
+        leveldb_iter_destroy(iter);
+        return NULL;
+    }
+
+    return iter;
+}
+
 /*
     We store a single txid_prefix key for all tx inputs so that can be recognized using the prev_out_index.
     This way we can save few disk space e.g. a tx that has 10 inputs weiges only 8+(10*(4+2+2)) = 88 bytes, while
@@ -323,19 +347,32 @@ size_t txdb_lookup_utxos(TXDB *dbptr, const uint8_t *scripthash, Utxo **utxosp, 
     size_t utxo_sz = 0;
     size_t utxos_capacity = 0;
     
-    struct utxo_key ukey;
-    ukey.height = 0;
-    memcpy(ukey.scripthash_prefix, scripthash, 8);
-    
-    struct utxo_dbt udbt;
-	
-    for (ukey.height = 0; ukey.height <= dbptr->current_height; ukey.height++) {
-		if ((ret = db_get(&dbptr->txouts_ptr, &ukey, sizeof(ukey), &udbt, sizeof(udbt))))
-			continue;
+    struct utxo_key seek_key;
+    seek_key.height = 0;
+    memcpy(seek_key.scripthash_prefix, scripthash, 8);
+
+    leveldb_iterator_t *iter = create_iterator_at(&dbptr->txouts_ptr, &seek_key, sizeof(seek_key));
+    if (!iter) {
+        logdebugf("utxo cannot be found %ul", *((uint64_t*)scripthash));
+        return 0; //notfound
+    }
+
+    size_t ukey_len, udbt_len;
+    struct utxo_key *ukey_ptr;
+    struct utxo_dbt *udbt_ptr;
+    for (leveldb_iter_next(iter); leveldb_iter_valid(iter); leveldb_iter_next(iter)) {
+        ukey_ptr = (struct utxo_key*) leveldb_iter_key(iter, &ukey_len);
+        assert(ukey_len == sizeof(struct utxo_key));
+
+        if (memcmp(ukey_ptr->scripthash_prefix, scripthash, 8))
+            break;
+
+        udbt_ptr = (struct utxo_dbt*) leveldb_iter_value(iter, &udbt_len);
+        assert(udbt_len == sizeof(struct utxo_dbt));
 
         //Is there a better way?
         if (mode & TXDB_UNSPENT) {
-            if (!txdb_get_txin(dbptr, udbt.txid_prefix, udbt.tx_pos, NULL)) { // this way we save ~ 14gb of space
+            if (!txdb_get_txin(dbptr, udbt_ptr->txid_prefix, udbt_ptr->tx_pos, NULL)) { // this way we save ~ 14gb of space
                 continue;
             }
         }
@@ -346,14 +383,21 @@ size_t txdb_lookup_utxos(TXDB *dbptr, const uint8_t *scripthash, Utxo **utxosp, 
         }
 
         Utxo *utxo = *utxosp + utxo_sz++;
-        utxo->height = ukey.height;
-        utxo->value = udbt.value;
-        utxo->tx_index = udbt.tx_index;
-        utxo->tx_pos = udbt.tx_pos;
+        utxo->height = ukey_ptr->height;
+        utxo->value = udbt_ptr->value;
+        utxo->tx_index = udbt_ptr->tx_index;
+        utxo->tx_pos = udbt_ptr->tx_pos;
 
-        if (txdb_lookup_txhash(dbptr, utxo->txhash, ukey.height, udbt.tx_index)) {
+        if ((ret = txdb_lookup_txhash(dbptr, utxo->txhash, ukey_ptr->height, udbt_ptr->tx_index))) {
             break;
         }
+    }
+
+    leveldb_iter_destroy(iter);
+
+    if (ret) {
+        logerrf("txdb utxo lookup error %d", ret);
+        return 0;
     }
 
 	return utxo_sz;
@@ -374,19 +418,31 @@ size_t txdb_history(TXDB *dbptr, uint8_t *scripthash, HistoryItem **historyp, si
     int ret = 0;
     int input_found;
     size_t hist_sz = 0;
-    size_t i;
     size_t hist_capacity = 0;
     
-    struct utxo_key ukey;
-    ukey.height = 0;
-    memcpy(ukey.scripthash_prefix, scripthash, 8);
-    
-    struct utxo_dbt udbt;
-    struct txin_dbt in_dbt;
+    struct utxo_key seek_key;
+    seek_key.height = 0;
+    memcpy(seek_key.scripthash_prefix, scripthash, 8);
 
-    for (ukey.height = 0; ukey.height <= dbptr->current_height; ukey.height++) {
-		if ((ret = db_get(&dbptr->txouts_ptr, &ukey, sizeof(ukey), &udbt, sizeof(udbt))))
-			continue;
+    leveldb_iterator_t *iter = create_iterator_at(&dbptr->txouts_ptr, &seek_key, sizeof(seek_key));
+    if (!iter) {
+        logdebugf("utxo cannot be found %ul", *((uint64_t*)scripthash));
+        return 0; //notfound
+    }
+
+    size_t ukey_len, udbt_len, i;
+    struct txin_dbt in_dbt;
+    struct utxo_key *ukey_ptr;
+    struct utxo_dbt *udbt_ptr;
+    for (leveldb_iter_next(iter); leveldb_iter_valid(iter) && hist_sz < limit; leveldb_iter_next(iter)) {
+        ukey_ptr = (struct utxo_key*) leveldb_iter_key(iter, &ukey_len);
+        assert(ukey_len == sizeof(struct utxo_key));
+
+        if (memcmp(ukey_ptr->scripthash_prefix, scripthash, 8))
+            break;
+
+        udbt_ptr = (struct utxo_dbt*) leveldb_iter_value(iter, &udbt_len);
+        assert(udbt_len == sizeof(struct utxo_dbt));
 
         if (hist_sz + 2 > hist_capacity) {
             hist_capacity = MAX(hist_capacity, 1) * 2;
@@ -394,9 +450,9 @@ size_t txdb_history(TXDB *dbptr, uint8_t *scripthash, HistoryItem **historyp, si
         }
 
         HistoryItem *hi = *historyp + hist_sz++;
-        hi->height = ukey.height;
-        hi->tx_index = udbt.tx_index;
-        if ((ret = txdb_lookup_txhash(dbptr, hi->txhash, ukey.height, udbt.tx_index))) {
+        hi->height = ukey_ptr->height;
+        hi->tx_index = udbt_ptr->tx_index;
+        if ((ret = txdb_lookup_txhash(dbptr, hi->txhash, ukey_ptr->height, udbt_ptr->tx_index))) {
             break;
         }
 
@@ -404,7 +460,7 @@ size_t txdb_history(TXDB *dbptr, uint8_t *scripthash, HistoryItem **historyp, si
             If there is an input using this utxo
             Get the height and txHash
         */
-        if ((ret = txdb_get_txin(dbptr, udbt.txid_prefix, udbt.tx_pos, &in_dbt)) == 0) {
+        if (txdb_get_txin(dbptr, udbt_ptr->txid_prefix, udbt_ptr->tx_pos, &in_dbt) == 0) {
             /*
                 A transaction can have multiple provouts from different blocks, so
                 we need to check if the output transaction is already added to the history
@@ -430,6 +486,13 @@ size_t txdb_history(TXDB *dbptr, uint8_t *scripthash, HistoryItem **historyp, si
 		
 	}
 
+    leveldb_iter_destroy(iter);
+
+    if (ret) {
+        logerrf("txdb history error %d", ret);
+        return 0;
+    }
+
 	// sorts the result in blockchain order
     if (hist_sz)
 		qsort(*historyp, hist_sz, sizeof(HistoryItem), &history_item_comp);
@@ -444,7 +507,7 @@ int txdb_lookup_txhash(TXDB *dbptr, uint8_t *tx_hash, uint32_t height, uint16_t 
 	
     struct txhash_key thkey;
     thkey.height = height;
-    thkey.tx_index = tx_index;
+    thkey.tx_index = htobe16(tx_index);
 
     return db_get(&dbptr->txhashes_ptr, &thkey, sizeof(thkey), tx_hash, 32);
 }
@@ -453,26 +516,37 @@ int txdb_lookup_txhashes_at_height(TXDB *dbptr, HashesVec *hashes, uint32_t heig
 {
 	if (height > dbptr->current_height)
 		return -1;
-	
-    uint8_t hash[32];
-    memset(hash, 0, 32);
 
 	struct txhash_key thkey;
 	thkey.height = height;
+    thkey.tx_index = 0;
 
-	/* FIXME for now using a simple get until we setup a proper comparator, that ensures irdering and 
-	 * provides efficiency on retrieval. 
-	 * PROVIDE A COMPARATOR AND USE ITERATOR!!!!
-	*/
-	for (thkey.tx_index = 0; thkey.tx_index < USHRT_MAX; thkey.tx_index++) {
-        if (db_get(&dbptr->txhashes_ptr, &thkey, sizeof(thkey), hash, 32))
+    leveldb_iterator_t *iter = create_iterator_at(&dbptr->txhashes_ptr, &thkey, sizeof(thkey));
+
+    size_t key_len, hash_len;
+    struct txhash_key *thkey_ptr;
+    uint8_t *hash_ptr;
+    for (; leveldb_iter_valid(iter); leveldb_iter_next(iter)) {
+        thkey_ptr = (struct txhash_key*) leveldb_iter_key(iter, &key_len);
+        assert(key_len == sizeof(struct txhash_key));
+
+        if (thkey_ptr->height != height)
             break;
 
-        hashes_vec_add(hashes, hash);
-	}
+        hash_ptr = (uint8_t*) leveldb_iter_value(iter, &hash_len);
+        assert(hash_len == 32);
+
+        /*
+         * the txhash order is enforced by leveldb itself thanks to the lexographical comparator
+         * since the indexes are stored in big-endian byte order the hashes are always sorted
+         */
+        hashes_vec_add(hashes, hash_ptr);
+    }
+
+    leveldb_iter_destroy(iter);
 	
 	// not found tx at index 0 this means that this height does not exists! NOTE this should never happen!
-	if (thkey.tx_index == 0)
+    if (hashes->size == 0)
 		return -1;
 
     return 0;
@@ -529,9 +603,15 @@ int txdb_store_txs(TXDB *dbptr, BtcTx *txs, size_t txs_sz, uint32_t height)
             assert(i < USHRT_MAX);
             
             memcpy(ukey.scripthash_prefix, txs[itx].tx_out[i].pk_script_hash, sizeof(ukey.scripthash_prefix));
-            ukey.height = height;
+            ukey.height = 0;
             
-            logdebugf("store %lu scripthash at height %d", *((uint64_t*) ukey.scripthash_prefix), height);
+            // store the zero scripthash key, this is used as a seek start point, empty value
+            if ((ret = db_put(&dbptr->txouts_ptr, &ukey, sizeof(ukey), "", 0))) {
+                logerrf("txdb: error storing txouts");
+                return ret;
+            }
+
+            ukey.height = height;
 
             memset(&udbt, 0, sizeof(struct utxo_dbt));
             udbt.value = txs[itx].tx_out[i].value;
@@ -550,8 +630,10 @@ int txdb_store_txs(TXDB *dbptr, BtcTx *txs, size_t txs_sz, uint32_t height)
 
     struct txhash_key thkey;
     thkey.height = height;
-    for (thkey.tx_index = 0; thkey.tx_index < txs_sz; thkey.tx_index++) {
-		if ((ret = db_put(&dbptr->txhashes_ptr, &thkey, sizeof(thkey), txs[thkey.tx_index].txid, 32))) {
+    for (itx = 0; itx < txs_sz; itx++) {
+        // tx index is stored in big endian byte order this enforces key ordering
+        thkey.tx_index = htobe16((uint16_t) itx);
+        if ((ret = db_put(&dbptr->txhashes_ptr, &thkey, sizeof(thkey), txs[itx].txid, 32))) {
 			return ret;
 		}
 	}
