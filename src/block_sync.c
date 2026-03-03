@@ -129,7 +129,7 @@ int prefetch_blocks(BitcoinRpcCtx *btc_rpc_ctx, TXDB *dbptr, HashesVec *new_scri
             parse_tot += (time(NULL) - time1);
             time1 = time(NULL);
 
-            if (txdb_store_txs(dbptr, txs, txns, height)) {
+            if (txdb_bulk_store_txs(dbptr, txs, txns, height)) {
                 logerrf("block sync: error storing txs data");
             }
             if (txdb_store_block_header(dbptr, blocks[i], height)) {
