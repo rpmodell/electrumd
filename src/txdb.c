@@ -174,34 +174,36 @@ int txdb_open(TXDB *dbptr, const char *db_dir, unsigned int cache_size, long sta
 	return 0;
 }
 
-static int db_close(struct dbi *db, const char *name)
+static int db_close(struct dbi *db)
 {
-	char *err = NULL;
-	
+    leveldb_writeoptions_destroy(db->wopts);
+    leveldb_readoptions_destroy(db->ropts);
+    leveldb_options_destroy(db->opts);
 	leveldb_close(db->db);
-    leveldb_destroy_db(db->opts, "testdb", &err);
-    if (err) {
-		logerrf("txdb close: %s: %s", name, err);
-		leveldb_free(err);
-		return -1;
-    }
-
     return 0;
 }
 
 int txdb_close(TXDB *dbptr)
 {
-	if (db_close(&dbptr->headers_ptr, HEADERS_DB_FILE_NAME)) 
+    if (db_close(&dbptr->headers_ptr)) {
+        logerrf("txdb error closing %s db", HEADERS_DB_FILE_NAME);
 		return -1;
+    }
 
-	if (db_close(&dbptr->txhashes_ptr, TXHASHES_DB_FILE_NAME))
+    if (db_close(&dbptr->txhashes_ptr)) {
+        logerrf("txdb error closing %s db", TXHASHES_DB_FILE_NAME);
 		return -1;
+    }
     
-	if (db_close(&dbptr->txins_ptr, TXINS_DB_FILE_NAME))
+    if (db_close(&dbptr->txins_ptr)) {
+        logerrf("txdb error closing %s db", TXINS_DB_FILE_NAME);
 		return -1;
+    }
     
-	if (db_close(&dbptr->txouts_ptr, TXOUTS_DB_FILE_NAME))
+    if (db_close(&dbptr->txouts_ptr)) {
+        logerrf("txdb error closing %s db", TXOUTS_DB_FILE_NAME);
 		return -1;
+    }
 
 	return 0;
 }
