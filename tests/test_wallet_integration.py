@@ -114,7 +114,7 @@ def test_wallet_integration(request):
     )
 
     def teardown_bitcoind():
-        bitcoin_cli(bitcoin_cli_path, bitcoin_data_dir, ['getblockcount'])
+        bitcoin_cli(bitcoin_cli_path, bitcoin_data_dir, ['stop'])
         bitcoind_proc.send_signal(signal.SIGINT)
         bitcoind_proc.wait()
 
