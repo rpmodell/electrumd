@@ -10,7 +10,7 @@ Electrumd is a small and lightweight Electrum server.
 
 #### Test
 - pytest
-- jq (required by the integration_test.sh script)
+- ~~jq (required by the integration_test.sh script)~~ (Deprecated)
 
 ### Code Contribution Rules
 
@@ -40,12 +40,11 @@ make install clean
 pytest tests/test_electrum_rpc.py
 ```
     - requires sync electrumd daemon (at least at height 400000)
+
 - Integration with electrum wallet test:
 ```bash
-./tests/integration_test.sh
+pytest tests/test_wallet_integration.py
 ```
-    - requires jq
-    - this script will be replaced with a python script so that we can use pytest as the standard test suite for electrumd
 
 ### Additional notes
 - For now at least, electrumd must be intended to be used in a small scale home or friends environment it is not meant for a enterprise service level
