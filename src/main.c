@@ -287,7 +287,7 @@ int main(int argc, char **argv)
 shutdown:
     loginfof("electrumd: exited");
     txdb_close(&txdb);
-    configs_free(&configs);
 
     remove(configs.pid_file_path);
+    configs_free(&configs);
 }

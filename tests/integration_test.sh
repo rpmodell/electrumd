@@ -26,7 +26,9 @@
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-
+################################################################################
+## This test is deprecated and will be removed use test_wallet_integration.py ##
+################################################################################
 
 cleanup() 
 {
