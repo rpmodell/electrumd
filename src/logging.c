@@ -27,6 +27,8 @@
  * 
  */
 
+#include "logging.h"
+
 #include <stdio.h>
 #include <pthread.h>
 #include <stdarg.h>
@@ -34,25 +36,18 @@
 #include <time.h>
 #include <unistd.h>
 
-#include "logging.h"
+#define LOG_LINES_FLUSH_THR 5
 
-struct _logging {
+struct {
 	pthread_mutex_t mutex;
 	FILE *err_fp;
 	FILE *fp;
 	int level;
     int log_count;
-};
-
-#ifndef GLOBAL_LOG
-#define GLOBAL_LOG
-static struct _logging global_log = {.err_fp = NULL, .fp = NULL};
-#endif
+} global_log;
 
 void logging_init(void)
-{
-	if (global_log.fp && global_log.err_fp) return;
-	
+{	
 	global_log.err_fp = stderr;
 	global_log.fp = stdout;
 	global_log.level = LOGGING_LEVEL_DEBUG;
@@ -86,14 +81,15 @@ void logging_printf(FILE *fp, const char *level_str, const char *format, va_list
 {
     assert(global_log.fp && global_log.err_fp);
     time_t t = time(NULL);
-    struct tm tm = *localtime(&t);
-    char fmt[1024];
-    sprintf(fmt, "%d/%02d/%02d %02d:%02d:%02d %5s %s\n", tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec, level_str, format);
+    struct tm *tm = localtime(&t);
 	
     pthread_mutex_lock(&global_log.mutex);
-    vfprintf(fp, fmt, ap);
+    fprintf(fp, "[%d/%02d/%02d %02d:%02d:%02d] [%5s] ", tm->tm_year + 1900, tm->tm_mon + 1, tm->tm_mday, tm->tm_hour, tm->tm_min, tm->tm_sec, level_str);
+    vfprintf(fp, format, ap);
+    fprintf(fp, "\n");
+
     global_log.log_count++;
-    if (fileno(global_log.fp) != STDOUT_FILENO && fileno(global_log.err_fp) != STDERR_FILENO && global_log.log_count >= 5) {
+    if (fileno(global_log.fp) != STDOUT_FILENO && fileno(global_log.err_fp) != STDERR_FILENO && global_log.log_count >= LOG_LINES_FLUSH_THR) {
         fflush(global_log.err_fp);
     }
 
@@ -105,7 +101,7 @@ void logdebugf(const char *args, ...)
 	if (global_log.level < LOGGING_LEVEL_DEBUG) return;
 	va_list ap;
 	va_start(ap, args);
-	logging_printf(global_log.err_fp, "debug", args, ap);
+    logging_printf(global_log.err_fp, "debug", args, ap);
 	va_end(ap);
 }
 
@@ -114,7 +110,7 @@ void logerrf(const char *args, ...)
 	if (global_log.level < LOGGING_LEVEL_ERROR) return;
 	va_list ap;
 	va_start(ap, args);
-	logging_printf(global_log.err_fp, "error", args, ap);
+    logging_printf(global_log.err_fp, "error", args, ap);
 	va_end(ap);
 }
 
@@ -123,6 +119,6 @@ void loginfof(const char *args, ...)
 	if (global_log.level < LOGGING_LEVEL_INFO) return;
 	va_list ap;
 	va_start(ap, args);
-	logging_printf(global_log.fp, "info", args, ap);
+    logging_printf(global_log.fp, "info", args, ap);
 	va_end(ap);
 }
