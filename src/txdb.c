@@ -113,7 +113,7 @@ PACKED_STRUCT txhash_key {
 	uint16_t tx_index; // index of the tx inside the block
 };
 
-static int db_init_open(struct dbi *db, const char *db_dir, const char *db_name, int flags)
+static int db_init_open(struct dbi *db, const char *db_dir, const char *db_name, ssize_t cache_buf_size)
 {
 	/* Create and initialize LevelDB database */
 	char db_path[1024];
@@ -121,6 +121,10 @@ static int db_init_open(struct dbi *db, const char *db_dir, const char *db_name,
 	
 	char *err = NULL;
 	db->opts = leveldb_options_create();
+
+	if (cache_buf_size > 0)
+    	leveldb_options_set_write_buffer_size(db->opts, cache_buf_size);
+
     leveldb_options_set_create_if_missing(db->opts, 1);
     db->db = leveldb_open(db->opts, db_path, &err);
 
@@ -160,14 +164,14 @@ int txdb_open(TXDB *dbptr, const char *db_dir, unsigned int cache_size, long sta
     if (db_init_open(&dbptr->headers_ptr, db_dir, HEADERS_DB_FILE_NAME, 0))
         return -1;
 
-    if (db_init_open(&dbptr->txhashes_ptr, db_dir, TXHASHES_DB_FILE_NAME, 0))
+    if (db_init_open(&dbptr->txhashes_ptr, db_dir, TXHASHES_DB_FILE_NAME, cache_size / 3))
         return -1;
 
 
-    if (db_init_open(&dbptr->txins_ptr, db_dir, TXINS_DB_FILE_NAME, 0))
+    if (db_init_open(&dbptr->txins_ptr, db_dir, TXINS_DB_FILE_NAME, cache_size / 3))
         return -1;
 	
-    if (db_init_open(&dbptr->txouts_ptr, db_dir, TXOUTS_DB_FILE_NAME, 0))
+    if (db_init_open(&dbptr->txouts_ptr, db_dir, TXOUTS_DB_FILE_NAME, cache_size / 3))
 		return -1;
 
     strcpy(dbptr->db_dir, db_dir);
