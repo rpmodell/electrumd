@@ -213,7 +213,7 @@ def test_wallet_integration(request):
     bitcoin_cli(bitcoin_cli_path, bitcoin_data_dir, ['getblockcount'])
 
     print("[*] wait for new block -> takes about ~ 5min")
-    wait_log_message(electrum_log_path, f'verified {tx_id}', timeout=60)
+    wait_log_message(electrum_log_path, f'verified {tx_id}', timeout=120)
 
     json_result = json.loads(electrum(electrum_path, electrum_data_dir, ['get_tx_status', tx_id]))
     print(f"[*] get_tx_status JSON: {json_result}")
