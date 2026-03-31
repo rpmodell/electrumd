@@ -230,6 +230,33 @@ size_t txdb_flush(TXDB *dbptr)
 	return 0;
 }
 
+static void *db_compact(void *uo)
+{
+    leveldb_compact_range(((struct dbi*) uo)->db, NULL, 0, NULL, 0);
+    return NULL;
+}
+
+int txdb_compact(TXDB *dbptr)
+{
+    if (!dbptr)
+        return -1;
+
+    pthread_t txouts_cmcpt_thread;
+    pthread_create(&txouts_cmcpt_thread, NULL, &db_compact, &dbptr->txouts_ptr);
+
+    pthread_t txins_cmcpt_thread;
+    pthread_create(&txins_cmcpt_thread, NULL, &db_compact, &dbptr->txins_ptr);
+
+    pthread_t txhash_cmcpt_thread;
+    pthread_create(&txhash_cmcpt_thread, NULL, &db_compact, &dbptr->txhashes_ptr);
+
+    pthread_join(txouts_cmcpt_thread, NULL);
+    pthread_join(txins_cmcpt_thread, NULL);
+    pthread_join(txhash_cmcpt_thread, NULL);
+
+    return 0;
+}
+
 // DB put / get
 static int db_put(struct dbi *db, void *key, size_t key_sz, void *dp, size_t data_sz)
 {

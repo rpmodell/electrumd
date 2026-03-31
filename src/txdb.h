@@ -103,6 +103,14 @@ int txdb_close(TXDB *dbptr);
 size_t txdb_flush(TXDB *dbptr);
 
 /**
+ * Forces underlying leveldb databases compatction.
+ *
+ * @param dbptr Pointer to a TXDB structure that will hold the database handle.
+ * @return 0 on success, non-zero error code on failure.
+ */
+int txdb_compact(TXDB *dbptr);
+
+/**
  * Walk through all the utxos with a specific scripthash in the database and
  * returns a list of them.
  *
