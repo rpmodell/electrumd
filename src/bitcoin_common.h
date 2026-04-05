@@ -45,6 +45,10 @@
 #define MAX_BLOCK_SERIALIZED_SIZE 4000000
 #define BLOCK_HEADER_SIZE 80
 
+//refs: https://github.com/bitcoin/bitcoin/blob/master/src/script/script.h
+#define OP_RETURN 0x6a
+#define IS_SCRIPT_OP_RETURN(S,L) (L > 0 && S && *S == OP_RETURN)
+
 #define MIN_VARINT_SZ sizeof(uint8_t)
 #define MAX_VARINT_SZ sizeof(uint64_t)
 
