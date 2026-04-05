@@ -646,6 +646,9 @@ int txdb_store_txs(TXDB *dbptr, BtcTx *txs, size_t txs_sz, uint32_t height)
     
     for (itx = 0; itx < txs_sz; itx++) {
 		for (i = 0; i < txs[itx].tx_out_count; i++) {
+            if (IS_SCRIPT_OP_RETURN(txs[itx].tx_out[i].pk_script, txs[itx].tx_out[i].pk_script_len))
+                continue;
+
             assert(i < USHRT_MAX);
 
             memset(&udbt, 0, sizeof(struct utxo_dbt));
@@ -761,6 +764,9 @@ int txdb_bulk_store_txs(TXDB *dbptr, BtcTx *txs, size_t txs_sz, uint32_t height)
     bulkn = 0;
     for (itx = 0; itx < txs_sz; itx++) {
 		for (i = 0; i < txs[itx].tx_out_count; i++) {
+            if (IS_SCRIPT_OP_RETURN(txs[itx].tx_out[i].pk_script, txs[itx].tx_out[i].pk_script_len))
+                continue;
+
             assert(i < USHRT_MAX);
 
             udbt.value = txs[itx].tx_out[i].value;
