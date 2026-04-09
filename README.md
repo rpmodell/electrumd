@@ -3,9 +3,8 @@
 Electrumd is a small and lightweight Electrum server.
 
 ### Build Dependencies
-
 - libcurl
-- Berkeley DB 5.3 (on Linux, libdb; on BSD, db5.3)
+- LevelDB
 - OpenSSL
 
 #### Test
