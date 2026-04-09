@@ -48,6 +48,8 @@
 
 #define HEIGHT_ITER_START 1
 
+#define DB_MAX_FILE_SIZE (16*1024*1024)
+
 #define HEADERS_DB_FILE_NAME "headers.db"
 #define TXHASHES_DB_FILE_NAME "txhashes.db"
 #define TXINS_DB_FILE_NAME "txins.db"
@@ -124,6 +126,8 @@ static int db_init_open(struct dbi *db, const char *db_dir, const char *db_name,
 	if (cache_buf_size > 0)
     	leveldb_options_set_write_buffer_size(db->opts, cache_buf_size);
 
+    leveldb_options_set_filter_policy(db->opts, leveldb_filterpolicy_create_bloom(10));
+    leveldb_options_set_max_file_size(db->opts, DB_MAX_FILE_SIZE);
     leveldb_options_set_create_if_missing(db->opts, 1);
     db->db = leveldb_open(db->opts, db_path, &err);
 
@@ -590,6 +594,9 @@ int txdb_store_txs(TXDB *dbptr, BtcTx *txs, size_t txs_sz, uint32_t height)
     
     for (itx = 0; itx < txs_sz; itx++) {
 		for (i = 0; i < txs[itx].tx_out_count; i++) {
+            if (IS_SCRIPT_OP_RETURN(txs[itx].tx_out[i].pk_script, txs[itx].tx_out[i].pk_script_len))
+                continue;
+
             assert(i < USHRT_MAX);
             
             memcpy(ukey.scripthash_prefix, txs[itx].tx_out[i].pk_script_hash, sizeof(ukey.scripthash_prefix));
@@ -689,6 +696,9 @@ int txdb_bulk_store_txs(TXDB *dbptr, BtcTx *txs, size_t txs_sz, uint32_t height)
 
     for (itx = 0; itx < txs_sz; itx++) {
         for (i = 0; i < txs[itx].tx_out_count; i++) {
+            if (IS_SCRIPT_OP_RETURN(txs[itx].tx_out[i].pk_script, txs[itx].tx_out[i].pk_script_len))
+                continue;
+
             assert(i < USHRT_MAX);
 
             memcpy(ukey.scripthash_prefix, txs[itx].tx_out[i].pk_script_hash, sizeof(ukey.scripthash_prefix));
