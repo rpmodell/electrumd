@@ -131,8 +131,8 @@ def test_server_features():
         []
     )
 
-    assert result["hosts"]["0.0.0.0"]["tcp_port"] == 50001
-    assert result["hosts"]["0.0.0.0"]["ssl_port"] == None
+    assert result["hosts"]["127.0.0.1"]["tcp_port"] == 50001
+    assert result["hosts"]["127.0.0.1"]["ssl_port"] == None
     assert result["pruning"] == None
     assert result["server_version"] == "electrumd" 
     assert result["protocol_min"] == "1.4"

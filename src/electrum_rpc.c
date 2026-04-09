@@ -433,7 +433,7 @@ int blockchain_scripthash_getmempool(MempoolCache *mc_ptr, BitcoinRpcCtx *btc_rp
     return scripthash_history(mc_ptr, btc_rpc_ctx, dbptr, response, scripthash, 0);
 }
 
-int blockchain_scripthash_listunpent(MempoolCache *mc_ptr, BitcoinRpcCtx *btc_rpc_ctx, TXDB *dbptr, jsonobj *params, jsonobj *response, int client_fd)
+int blockchain_scripthash_listunspent(MempoolCache *mc_ptr, BitcoinRpcCtx *btc_rpc_ctx, TXDB *dbptr, jsonobj *params, jsonobj *response, int client_fd)
 {
 	/* JSON response format
 	 * [
@@ -468,7 +468,7 @@ int blockchain_scripthash_listunpent(MempoolCache *mc_ptr, BitcoinRpcCtx *btc_rp
     response->type = LIST;
 
     size_t i;
-    size_t utxo_sz = txdb_lookup_utxos(dbptr, scripthash, &utxos, 0);
+    size_t utxo_sz = txdb_lookup_utxos(dbptr, scripthash, &utxos, TXDB_UNSPENT);
     for (i = 0; i < utxo_sz; i++) {
         bytes_to_hex(bytesinv(utxos[i].txhash, 32), 32, tx_hash_str);
 
@@ -1076,7 +1076,7 @@ const struct rpc_func_handler rpc_handlers[] = {
     {.method = "blockchain.scripthash.get_balance", .funptr = &blockchain_scripthash_getbalance},
     {.method = "blockchain.scripthash.get_history", .funptr = &blockchain_scripthash_gethistory},
     {.method = "blockchain.scripthash.get_mempool", .funptr = &blockchain_scripthash_getmempool},
-    {.method = "blockchain.scripthash.listunspent", .funptr = &blockchain_scripthash_listunpent},
+    {.method = "blockchain.scripthash.listunspent", .funptr = &blockchain_scripthash_listunspent},
     {.method = "blockchain.scripthash.subscribe", .funptr = &blockchain_scripthash_subscribe},
     {.method = "blockchain.scripthash.unsubscribe", .funptr = &blockchain_scripthash_unsubscribe},
     {.method = "blockchain.transaction.broadcast", .funptr = &blockchain_transaction_broadcast},
