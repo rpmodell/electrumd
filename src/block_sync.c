@@ -27,6 +27,12 @@
  * 
  */
 
+#include "block_sync.h"
+
+#include "shared.h"
+#include "logging.h"
+#include "electrum_rpc.h"
+
 #include <stdint.h>
 #include <string.h>
 #include <stdlib.h>
@@ -36,19 +42,14 @@
 #include <assert.h>
 #include <unistd.h>
 
-#include "shared.h"
-#include "logging.h"
-#include "electrum_rpc.h"
-#include "mempool.h"
-
-#include "block_sync.h"
-
 //#define DB_TEST_HEIGHT 400000
 
 /* enable TEST_BLKCMP to test each received block hash matches with the one taken from jsonrpc,
  * this can impact sync speed so use only for debug purposes
 */
 // #define TEST_BLKCMP 1
+
+#define SYNC_THREAD_SECONDS 30
 
 /*
     Gets blocks using Bitcoin Core Rpc Protocol
@@ -411,4 +412,89 @@ sync_round_end:
          }
     }
     return 0;
+}
+
+void *btc_sync_thread_func(void *o)
+{
+    if (!o)
+        return NULL;
+
+    SyncThreadCtx *arg = (SyncThreadCtx*) o;
+    struct timespec twait;
+
+    while (electrumd_running) {
+        clock_gettime(CLOCK_REALTIME, &twait);
+        twait.tv_sec += SYNC_THREAD_SECONDS;
+
+        pthread_mutex_lock(&arg->mutex);
+        pthread_cond_timedwait(&arg->cond, &arg->mutex, &twait);
+        pthread_mutex_unlock(&arg->mutex);
+
+        if (!electrumd_running)
+            return NULL;
+
+        long prev_height, last_height;
+        prev_height = last_height = arg->dbptr->current_height;
+
+        HashesVec new_scripthashes;
+        hashes_vec_init(&new_scripthashes);
+
+        mempool_cache_update(arg->mc_ptr, arg->core_rpc_ctx, &new_scripthashes);
+//            mempool_cache_update2(arg->mc_ptr, arg->core_rpc_ctx, arg->p2p_ctx, &new_scripthashes);
+
+        if (getblockcount(arg->core_rpc_ctx, &last_height)) {
+            logerrf("sync: failed to fetch new height");
+            continue;
+        }
+
+        if (last_height - prev_height) {
+            loginfof("sync: new_height=%ld", last_height);
+//                prefetch_blocks(arg->core_rpc_ctx, arg->dbptr, &new_scripthashes);
+            if (prefetch_blocks2(arg->core_rpc_ctx, arg->p2p_ctx, arg->dbptr, &new_scripthashes)) {
+                logerrf("sync: block fetch update failed");
+                continue;
+            }
+
+            while (prev_height < last_height)
+                electrum_rpc_height_notify(arg->dbptr, (uint32_t) ++prev_height);
+        }
+
+        logdebugf("sync: fetch new %ld scriphashes", new_scripthashes.size);
+
+        //notify for scripthash changes
+        electrum_rpc_new_scripthashes_notify(arg->dbptr, arg->mc_ptr, &new_scripthashes);
+
+        hashes_vec_free(&new_scripthashes);
+    }
+
+    return NULL;
+}
+
+int sync_thread_start(SyncThreadCtx *sctx, BitcoinRpcCtx *btc_rpc_ctx, BtcP2pProtoCtx *p2p_ctx, TXDB *dbptr, MempoolCache *mc_ptr)
+{
+    sctx->core_rpc_ctx = btc_rpc_ctx;
+    sctx->p2p_ctx = p2p_ctx;
+    sctx->dbptr = dbptr;
+    sctx->mc_ptr = mc_ptr;
+
+    pthread_mutex_init(&sctx->mutex, NULL);
+    pthread_cond_init(&sctx->cond, NULL);
+
+    return pthread_create(&sctx->thread, NULL, &btc_sync_thread_func, sctx);
+}
+
+void sync_thread_notify_update(SyncThreadCtx *sctx)
+{
+    pthread_mutex_lock(&sctx->mutex);
+    pthread_cond_signal(&sctx->cond);
+    pthread_mutex_unlock(&sctx->mutex);
+}
+
+void sync_thread_stop(SyncThreadCtx *sctx)
+{
+    sync_thread_notify_update(sctx);
+    pthread_join(sctx->thread, NULL);
+
+    pthread_mutex_destroy(&sctx->mutex);
+    pthread_cond_destroy(&sctx->cond);
 }

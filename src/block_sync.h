@@ -33,10 +33,25 @@
 #include "txdb.h"
 #include "bitcoin_rpc.h"
 #include "bitcoin_p2p.h"
-#include "electrum_rpc.h"
+#include "mempool.h"
+
+typedef struct {
+    pthread_t thread;
+    pthread_mutex_t mutex;
+    pthread_cond_t cond;
+
+    BitcoinRpcCtx *core_rpc_ctx;
+    BtcP2pProtoCtx *p2p_ctx;
+    TXDB *dbptr;
+    MempoolCache *mc_ptr;
+} SyncThreadCtx;
 
 int prefetch_blocks(BitcoinRpcCtx *btc_rpc_ctx, TXDB *dbptr, HashesVec *touched_addresses);
 int prefetch_blocks2(BitcoinRpcCtx *btc_rpc_ctx, BtcP2pProtoCtx *p2p_ctx, TXDB *dbptr, HashesVec *new_scripthashes);
 int prefetch_blocks3(BitcoinRpcCtx *btc_rpc_ctx, BtcP2pProtoCtx *p2p_ctx, TXDB *dbptr, HashesVec *new_scripthashes);
+
+int sync_thread_start(SyncThreadCtx *sctx, BitcoinRpcCtx *btc_rpc_ctx, BtcP2pProtoCtx *p2p_ctx, TXDB *dbptr, MempoolCache *mc_ptr);
+void sync_thread_notify_update(SyncThreadCtx *sctx);
+void sync_thread_stop(SyncThreadCtx *sctx);
 
 #endif

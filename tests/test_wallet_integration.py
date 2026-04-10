@@ -53,6 +53,7 @@ def wait_log_message(path, message, timeout=30):
     with open(path, 'r') as fp:
         while (time.time() - start_time) < timeout:
             line = fp.readline()
+            time.sleep(0.05)
             if line is not None and message in line.strip():
                 return
 
@@ -199,6 +200,9 @@ def test_wallet_integration(request):
             "tx_hash": tx_id
         }
     ]
+
+    # sleep for 10 seconds
+    time.sleep(10)
 
     json_result = json.loads(electrum(electrum_path, electrum_data_dir, ['getbalance']))
     print(f"[*] getbalance JSON: {json_result}")

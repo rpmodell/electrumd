@@ -34,6 +34,7 @@
 #include "bitcoin_rpc.h"
 #include "mempool.h"
 #include "hashes_vec.h"
+#include "block_sync.h"
 
 #define HISTORY_LIMIT 1000
 
@@ -46,11 +47,10 @@
 #define ELECTRUM_PROTOCOL_MIN_NUMBER 140
 #define ELECTRUM_PROTOCOL_MAX_NUMBER 140
 
-int electrum_rpc_srv_status_updated(void);
 int electrum_rpc_height_notify(TXDB *dbptr, uint32_t height);
 int electrum_rpc_new_scripthashes_notify(TXDB *dbptr, MempoolCache *mc_ptr, const HashesVec *new_scripthashes);
 
 int electrum_server_init(char *pub_addr, int port, char *donation_addr, char *banner);
-int electrum_server_start(MempoolCache *mcp, BitcoinRpcCtx *btc_rpc_ctx, TXDB *dbptr, const char *addr, int port);
+int electrum_server_start(MempoolCache *mcp, BitcoinRpcCtx *btc_rpc_ctx, TXDB *dbptr, SyncThreadCtx *sync_thread_ctx, const char *addr, int port);
 
 #endif

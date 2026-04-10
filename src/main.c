@@ -46,67 +46,11 @@
 #include "mempool.h"
 #include "electrum_rpc.h"
 
-#define SYNC_THREAD_SECONDS (30 * CLOCKS_PER_SEC)
-
-struct btc_sync_thread_args {
-    BitcoinRpcCtx *core_rpc_ctx;
-    BtcP2pProtoCtx *p2p_ctx;
-    TXDB *dbptr;
-    MempoolCache *mc_ptr;
-};
 
 static void signal_handler(int signum)
 {
     loginfof("electrumd: SIGINT caught: stopping");
     electrumd_running = 0;
-}
-
-void *btc_sync_thread_func(void *o)
-{
-    if (!o)
-        return NULL;
-
-    struct btc_sync_thread_args *arg = (struct btc_sync_thread_args*) o;
-    clock_t start = clock();
-
-    while (electrumd_running) {
-        if (((clock() - start) % SYNC_THREAD_SECONDS) == 0 || electrum_rpc_srv_status_updated()) {
-            long prev_height, last_height;
-            prev_height = last_height = arg->dbptr->current_height;
-
-            HashesVec new_scripthashes;
-            hashes_vec_init(&new_scripthashes);
-
-            mempool_cache_update(arg->mc_ptr, arg->core_rpc_ctx, &new_scripthashes);
-//            mempool_cache_update2(arg->mc_ptr, arg->core_rpc_ctx, arg->p2p_ctx, &new_scripthashes);
-
-            if (getblockcount(arg->core_rpc_ctx, &last_height)) {
-                logerrf("sync: failed to fetch new height");
-                continue;
-            }
-
-            if (last_height - prev_height) {
-                loginfof("sync: new_height=%ld", last_height);
-//                prefetch_blocks(arg->core_rpc_ctx, arg->dbptr, &new_scripthashes);
-                if (prefetch_blocks2(arg->core_rpc_ctx, arg->p2p_ctx, arg->dbptr, &new_scripthashes)) {
-                    logerrf("sync: block fetch update failed");
-                    continue;
-                }
-
-                while (prev_height < last_height)
-                    electrum_rpc_height_notify(arg->dbptr, (uint32_t) ++prev_height);
-            }
-
-            logdebugf("sync: fetch new %ld scriphashes", new_scripthashes.size);
-
-            //notify for scripthash changes
-            electrum_rpc_new_scripthashes_notify(arg->dbptr, arg->mc_ptr, &new_scripthashes);
-
-            hashes_vec_free(&new_scripthashes);
-        }
-    }
-
-    return NULL;
 }
 
 int main(int argc, char **argv)
@@ -118,7 +62,6 @@ int main(int argc, char **argv)
     logging_set_level(LOGGING_LEVEL_DEBUG);
 
     struct sigaction sa;
-    pthread_t sync_thread;
     ElectrumdConfigs configs;
     configs_init(&configs);
 
@@ -270,19 +213,15 @@ int main(int argc, char **argv)
     mempool_cache_update(&mcp, &rpc_ctx, NULL);
 //    mempool_cache_update2(&mcp, &rpc_ctx, &p2p_ctx, NULL);
 
+    SyncThreadCtx sync_thread_ctx;
+
     electrum_server_init(configs.electrumd_rpc_bind, configs.electrumd_rpc_port, configs.donation_address, configs.banner);
 
-    struct btc_sync_thread_args sync_thread_args;
-    sync_thread_args.core_rpc_ctx = &rpc_ctx;
-    sync_thread_args.p2p_ctx = &p2p_ctx;
-    sync_thread_args.dbptr = &txdb;
-    sync_thread_args.mc_ptr = &mcp;
+    sync_thread_start(&sync_thread_ctx, &rpc_ctx, &p2p_ctx, &txdb, &mcp);
 
-    pthread_create(&sync_thread, NULL, &btc_sync_thread_func, &sync_thread_args);
+    electrum_server_start(&mcp, &rpc_ctx, &txdb, &sync_thread_ctx, configs.electrumd_rpc_bind, configs.electrumd_rpc_port);
 
-    electrum_server_start(&mcp, &rpc_ctx, &txdb, configs.electrumd_rpc_bind, configs.electrumd_rpc_port);
-
-    pthread_join(sync_thread, NULL);
+    sync_thread_stop(&sync_thread_ctx);
 
 shutdown:
     loginfof("electrumd: exited");
