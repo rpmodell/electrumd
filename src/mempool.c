@@ -37,7 +37,86 @@
 
 #include "mempool.h"
 
-#define FEE_HIST_BIN_SIZE 30000
+#define FEE_HIST_BIN_SIZE 25000.0
+
+int fee_hist_rev_sort_comp(const void *a, const void *b)
+{
+    return ((struct fee_hist_entry*) b)->rate - ((struct fee_hist_entry*) a)->rate;
+}
+
+static inline void fee_histogram_init(FeeHistogram *hist, size_t cap)
+{
+	hist->capacity = cap;
+    hist->size = 0;
+    hist->hist = (struct fee_hist_entry*) malloc(cap * sizeof(struct fee_hist_entry));
+
+}
+
+static void fee_histogram_append(FeeHistogram *hist, int64_t rate, size_t vsize)
+{
+    size_t i;
+    for (i = 0; i < hist->size; i++) {
+        if (hist->hist[i].rate == rate) {
+            hist->hist[i].vsize += vsize;
+            return;
+        }
+    }
+
+    if (hist->size + 1 >= hist->capacity) {
+        hist->capacity++;
+        hist->hist = (struct fee_hist_entry*) realloc(hist->hist, hist->capacity * sizeof(struct fee_hist_entry));
+    }
+    hist->hist[hist->size].rate = rate;
+    hist->hist[hist->size].vsize = vsize;
+    hist->size++;
+}
+
+static inline void fee_histogram_free(FeeHistogram *hist)
+{
+	hist->capacity = 0;
+	hist->size = 0;
+	free(hist->hist);
+	hist->hist = NULL;
+}
+
+static void fee_histogram_compact(FeeHistogram *dest_hist, FeeHistogram *src_hist)
+{
+    /*
+     * Compact the histogram,
+     * refs:
+     *
+     * The compact histogram is an array of (fee_rate, vsize) values.
+     * vsize_n is the cumulative virtual size of mempool
+     * transactions with a fee rate in the interval
+     * [rate_(n-1), rate_n)], and rate_(n-1) > rate_n.
+     * Intervals are chosen to create tranches containing at
+     * least a certain cumulative size (bin_size) of transactions.
+     */
+    qsort(src_hist->hist, src_hist->size, sizeof(struct fee_hist_entry), &fee_hist_rev_sort_comp);
+    double bin_size = FEE_HIST_BIN_SIZE;
+	size_t i, cm_size = 0, vsize = 0;
+
+    dest_hist->size = 0; // reset the size of the fee hist
+    for (i = 0; i < src_hist->size; i++) {
+        vsize = src_hist->hist[i].vsize;
+
+        if (i > 0 && vsize > 2 * bin_size && cm_size > 0) {
+            // push compact to the top of list
+			fee_histogram_append(dest_hist, src_hist->hist[i-1].rate, cm_size);
+            bin_size *= 1.1;
+            cm_size = 0;
+        }
+
+        cm_size += vsize;
+        if (cm_size > bin_size) {
+            // push compact to the top of list
+			fee_histogram_append(dest_hist, src_hist->hist[i].rate, cm_size);
+            bin_size *= 1.1;
+            cm_size = 0;
+        }
+    }
+
+}
 
 void mempool_cache_init(MempoolCache *mcp)
 {
@@ -45,9 +124,7 @@ void mempool_cache_init(MempoolCache *mcp)
     mcp->tx_cache.tail = NULL;
     mcp->tx_cache.size = 0;
 
-    mcp->fee_hist_capacity = 100;
-    mcp->fee_hist_sz = 0;
-    mcp->fee_hist = (struct fee_hist_entry*) malloc(mcp->fee_hist_capacity * sizeof(struct fee_hist_entry));
+	fee_histogram_init(&mcp->fee_histogram, 100);
 }
 
 void mempool_cache_print(MempoolCache *mc_ptr)
@@ -60,29 +137,6 @@ void mempool_cache_print(MempoolCache *mc_ptr)
     }
 }
 
-int fee_hist_rev_sort_comp(const void *a, const void *b)
-{
-    return ((struct fee_hist_entry*) b)->rate - ((struct fee_hist_entry*) a)->rate;
-}
-
-static void append_fee_hist_size(MempoolCache *mcp, int64_t rate, size_t vsize)
-{
-    size_t i;
-    for (i = 0; i < mcp->fee_hist_sz; i++) {
-        if (mcp->fee_hist[i].rate == rate) {
-            mcp->fee_hist[i].vsize += vsize;
-            return;
-        }
-    }
-
-    if (mcp->fee_hist_sz + 1 >= mcp->fee_hist_capacity) {
-        mcp->fee_hist_capacity++;
-        mcp->fee_hist = (struct fee_hist_entry*) realloc(mcp->fee_hist, mcp->fee_hist_capacity * sizeof(struct fee_hist_entry));
-    }
-    mcp->fee_hist[mcp->fee_hist_sz].rate = rate;
-    mcp->fee_hist[mcp->fee_hist_sz].vsize = vsize;
-    mcp->fee_hist_sz++;
-}
 
 long mempool_tx_is_input(MempoolCache *mc_ptr, const uint8_t *txid_prefix)
 {
@@ -303,94 +357,18 @@ int mempool_cache_update(MempoolCache *mcp, BitcoinRpcCtx *btc_rpc_ctx, HashesVe
         new_count++;
     }
 
-    //res current fee histogram
-    memset(mcp->fee_hist, 0, mcp->fee_hist_sz * sizeof(struct fee_hist_entry));
-    mcp->fee_hist_sz = 0;
+	FeeHistogram mp_hist;
+	fee_histogram_init(&mp_hist, 100 + new_count);
 
     int64_t fee_rate = 0;
     //next construct the full fee histogram
     for (e = mcp->tx_cache.head; e; e = e->next) {
         fee_rate = (int64_t) (floor(e->fee / e->vsize * 10.0) / 10.0);
-        append_fee_hist_size(mcp, fee_rate, e->vsize);
+        fee_histogram_append(&mp_hist, fee_rate, e->vsize);
     }
 
-    /*
-     * Compact the histogram,
-     * refs:
-     *
-     * The compact histogram is an array of (fee_rate, vsize) values.
-     * vsize_n is the cumulative virtual size of mempool
-     * transactions with a fee rate in the interval
-     * [rate_(n-1), rate_n)], and rate_(n-1) > rate_n.
-     * Intervals are chosen to create tranches containing at
-     * least a certain cumulative size (bin_size) of transactions.
-     */
-    qsort(mcp->fee_hist, mcp->fee_hist_sz, sizeof(struct fee_hist_entry), &fee_hist_rev_sort_comp);
-    size_t bin_size = FEE_HIST_BIN_SIZE, cm_size = 0, vsize = 0;
-    size_t full_hist_sz = mcp->fee_hist_sz;
-    mcp->fee_hist_sz = 0; // reset the size of the fee hist
-    struct fee_hist_entry *fhe = NULL;
-    for (i = 0; i < full_hist_sz; i++) {
-        vsize = mcp->fee_hist[i].vsize;
-
-        if (i > 0 && vsize > 2 * bin_size && cm_size > 0) {
-            // push compact to the top of list
-            fhe = &(mcp->fee_hist[mcp->fee_hist_sz++]);
-            fhe->rate = mcp->fee_hist[i-1].rate;
-            fhe->vsize = cm_size;
-            bin_size *= 1.1;
-            cm_size = 0;
-        }
-
-        cm_size += vsize;
-        if (cm_size > bin_size) {
-            // push compact to the top of list
-            fhe = &(mcp->fee_hist[mcp->fee_hist_sz++]);
-            fhe->rate = mcp->fee_hist[i].rate;
-            fhe->vsize = cm_size;
-            bin_size *= 1.1;
-            cm_size = 0;
-        }
-    }
-
-    // compact fee histogram
-    // @classmethod
-    // def _compress_histogram(
-    //         cls, histogram: Dict[float, int], *, bin_size: int
-    // ) -> Sequence[Tuple[float, int]]:
-    //     '''Calculate and return a compact fee histogram as needed for
-    //     "mempool.get_fee_histogram" protocol request.
-
-    //     histogram: feerate (sat/vbyte) -> total size in bytes of txs that pay approx feerate
-    //     bin_size: ~minimum vsize of a bucket of txs in the result (e.g. 100 kb)
-    //     '''
-    //     # Now compact it.  For efficiency, get_fees returns a
-    //     # compact histogram with variable bin size.  The compact
-    //     # histogram is an array of (fee_rate, vsize) values.
-    //     # vsize_n is the cumulative virtual size of mempool
-    //     # transactions with a fee rate in the interval
-    //     # [rate_(n-1), rate_n)], and rate_(n-1) > rate_n.
-    //     # Intervals are chosen to create tranches containing at
-    //     # least a certain cumulative size (bin_size) of transactions.
-    //     assert bin_size > 0
-    //     compact = []
-    //     cum_size = 0
-    //     prev_fee_rate = None
-    //     for fee_rate, size in sorted(histogram.items(), reverse=True):
-    //         # if there is a big lump of txns at this specific size,
-    //         # consider adding the previous item now (if not added already)
-    //         if size > 2 * bin_size and prev_fee_rate is not None and cum_size > 0:
-    //             compact.append((prev_fee_rate, cum_size))
-    //             cum_size = 0
-    //             bin_size *= 1.1
-    //         # now consider adding this item
-    //         cum_size += size
-    //         if cum_size > bin_size:
-    //             compact.append((fee_rate, cum_size))
-    //             cum_size = 0
-    //             bin_size *= 1.1
-    //         prev_fee_rate = fee_rate
-    //     return compact
+	fee_histogram_compact(&mcp->fee_histogram, &mp_hist);
+	fee_histogram_free(&mp_hist);
 
     logdebugf("mempool cache: fetched new %ld mempool transactions, current mempool size is %ld", new_count, mcp->tx_cache.size);
 
@@ -479,94 +457,19 @@ int mempool_cache_update2(MempoolCache *mcp, BitcoinRpcCtx *btc_rpc_ctx, BtcP2pP
         new_count++;
     }
 
-    //res current fee histogram
-    memset(mcp->fee_hist, 0, mcp->fee_hist_sz * sizeof(struct fee_hist_entry));
-    mcp->fee_hist_sz = 0;
+
+	FeeHistogram mp_hist;
+	fee_histogram_init(&mp_hist, 100 + new_count);
 
     int64_t fee_rate = 0;
     //next construct the full fee histogram
     for (e = mcp->tx_cache.head; e; e = e->next) {
         fee_rate = (int64_t) (floor(e->fee / e->vsize * 10.0) / 10.0);
-        append_fee_hist_size(mcp, fee_rate, e->vsize);
+        fee_histogram_append(&mp_hist, fee_rate, e->vsize);
     }
 
-    /*
-     * Compact the histogram,
-     * refs:
-     *
-     * The compact histogram is an array of (fee_rate, vsize) values.
-     * vsize_n is the cumulative virtual size of mempool
-     * transactions with a fee rate in the interval
-     * [rate_(n-1), rate_n)], and rate_(n-1) > rate_n.
-     * Intervals are chosen to create tranches containing at
-     * least a certain cumulative size (bin_size) of transactions.
-     */
-    qsort(mcp->fee_hist, mcp->fee_hist_sz, sizeof(struct fee_hist_entry), &fee_hist_rev_sort_comp);
-    size_t bin_size = FEE_HIST_BIN_SIZE, cm_size = 0, vsize = 0;
-    size_t full_hist_sz = mcp->fee_hist_sz;
-    mcp->fee_hist_sz = 0; // reset the size of the fee hist
-    struct fee_hist_entry *fhe = NULL;
-    for (i = 0; i < full_hist_sz; i++) {
-        vsize = mcp->fee_hist[i].vsize;
-
-        if (i > 0 && vsize > 2 * bin_size && cm_size > 0) {
-            // push compact to the top of list
-            fhe = &(mcp->fee_hist[mcp->fee_hist_sz++]);
-            fhe->rate = mcp->fee_hist[i-1].rate;
-            fhe->vsize = cm_size;
-            bin_size *= 1.1;
-            cm_size = 0;
-        }
-
-        cm_size += vsize;
-        if (cm_size > bin_size) {
-            // push compact to the top of list
-            fhe = &(mcp->fee_hist[mcp->fee_hist_sz++]);
-            fhe->rate = mcp->fee_hist[i].rate;
-            fhe->vsize = cm_size;
-            bin_size *= 1.1;
-            cm_size = 0;
-        }
-    }
-
-    // compact fee histogram
-    // @classmethod
-    // def _compress_histogram(
-    //         cls, histogram: Dict[float, int], *, bin_size: int
-    // ) -> Sequence[Tuple[float, int]]:
-    //     '''Calculate and return a compact fee histogram as needed for
-    //     "mempool.get_fee_histogram" protocol request.
-
-    //     histogram: feerate (sat/vbyte) -> total size in bytes of txs that pay approx feerate
-    //     bin_size: ~minimum vsize of a bucket of txs in the result (e.g. 100 kb)
-    //     '''
-    //     # Now compact it.  For efficiency, get_fees returns a
-    //     # compact histogram with variable bin size.  The compact
-    //     # histogram is an array of (fee_rate, vsize) values.
-    //     # vsize_n is the cumulative virtual size of mempool
-    //     # transactions with a fee rate in the interval
-    //     # [rate_(n-1), rate_n)], and rate_(n-1) > rate_n.
-    //     # Intervals are chosen to create tranches containing at
-    //     # least a certain cumulative size (bin_size) of transactions.
-    //     assert bin_size > 0
-    //     compact = []
-    //     cum_size = 0
-    //     prev_fee_rate = None
-    //     for fee_rate, size in sorted(histogram.items(), reverse=True):
-    //         # if there is a big lump of txns at this specific size,
-    //         # consider adding the previous item now (if not added already)
-    //         if size > 2 * bin_size and prev_fee_rate is not None and cum_size > 0:
-    //             compact.append((prev_fee_rate, cum_size))
-    //             cum_size = 0
-    //             bin_size *= 1.1
-    //         # now consider adding this item
-    //         cum_size += size
-    //         if cum_size > bin_size:
-    //             compact.append((fee_rate, cum_size))
-    //             cum_size = 0
-    //             bin_size *= 1.1
-    //         prev_fee_rate = fee_rate
-    //     return compact
+	fee_histogram_compact(&mcp->fee_histogram, &mp_hist);
+	fee_histogram_free(&mp_hist);
 
     logdebugf("mempool cache: fetched new %ld mempool transactions, current mempool size is %ld", new_count, mcp->tx_cache.size);
 

@@ -823,11 +823,13 @@ int mempool_get_fee_histogram(MempoolCache *mc_ptr, BitcoinRpcCtx *btc_rpc_ctx, 
 
     size_t i;
     jsonobj *fe = NULL;
-    for (i = 0; i < mc_ptr->fee_hist_sz; i++) {
-        fe = jsonobj_put_list(NULL, NULL);
-        jsonobj_list_add_int(fe, mc_ptr->fee_hist[i].vsize);
-        jsonobj_list_add_int(fe, mc_ptr->fee_hist[i].rate);
 
+	FeeHistogram *hist = &mc_ptr->fee_histogram;
+    for (i = 0; i < hist->size; i++) {
+        fe = jsonobj_put_list(NULL, NULL);
+        jsonobj_list_add_int(fe, hist->hist[i].rate);
+        jsonobj_list_add_int(fe, hist->hist[i].vsize);
+		
         jsonobj_list_add_list(response, fe);
     }
 

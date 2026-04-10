@@ -51,6 +51,12 @@ struct fee_hist_entry {
 };
 
 typedef struct {
+    size_t capacity;
+    size_t size;
+    struct fee_hist_entry *hist;
+} FeeHistogram;
+
+typedef struct {
     uint8_t tx_hash[32];
     int64_t fee;
     int has_unconf_inputs;
@@ -64,9 +70,7 @@ typedef struct {
         size_t size;
     } tx_cache;
 
-    size_t fee_hist_capacity;
-    size_t fee_hist_sz;
-    struct fee_hist_entry *fee_hist;
+	FeeHistogram fee_histogram;
 } MempoolCache;
 
 void mempool_cache_init(MempoolCache *mc_ptr);
