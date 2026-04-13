@@ -14,7 +14,6 @@ Electrumd is a small and lightweight Electrum server.
 ### Code Contribution Rules
 
 - Any contribution is appreciated.
-- Please try to follow the OpenBSD code style guidelines as much as possible (https://man.openbsd.org/style).
 - Please use English in comments.
 
 ### Reporting an issue
@@ -23,8 +22,7 @@ Electrumd is a small and lightweight Electrum server.
 
 ### Things not working
 - OpenBSD support coming soon...
-- Mempool sync via P2P protocol
-- Berkley DB recovery in case of failure
+- Peers Add / Subscribe
 - SSL server not yet supported
 
 ### Build and install

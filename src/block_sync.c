@@ -440,8 +440,6 @@ void *btc_sync_thread_func(void *o)
         hashes_vec_init(&new_scripthashes);
 
         mempool_cache_update(arg->mc_ptr, arg->core_rpc_ctx, &new_scripthashes);
-//            mempool_cache_update2(arg->mc_ptr, arg->core_rpc_ctx, arg->p2p_ctx, &new_scripthashes);
-
         if (getblockcount(arg->core_rpc_ctx, &last_height)) {
             logerrf("sync: failed to fetch new height");
             continue;
@@ -449,7 +447,6 @@ void *btc_sync_thread_func(void *o)
 
         if (last_height - prev_height) {
             loginfof("sync: new_height=%ld", last_height);
-//                prefetch_blocks(arg->core_rpc_ctx, arg->dbptr, &new_scripthashes);
             if (prefetch_blocks2(arg->core_rpc_ctx, arg->p2p_ctx, arg->dbptr, &new_scripthashes)) {
                 logerrf("sync: block fetch update failed");
                 continue;

@@ -199,7 +199,6 @@ int main(int argc, char **argv)
     BtcP2pProtoCtx p2p_ctx;
     p2p_ctx_init(&p2p_ctx, configs.bitcoin_p2p_addr, configs.bitcoin_p2p_port, rpc_ctx.chain);
 
-//    if (prefetch_blocks(&rpc_ctx, &txdb, NULL)) {
     if (prefetch_blocks2(&rpc_ctx, &p2p_ctx, &txdb, NULL)) {
         goto shutdown;
     }
@@ -211,7 +210,6 @@ int main(int argc, char **argv)
     MempoolCache mcp;
     mempool_cache_init(&mcp);
     mempool_cache_update(&mcp, &rpc_ctx, NULL);
-//    mempool_cache_update2(&mcp, &rpc_ctx, &p2p_ctx, NULL);
 
     SyncThreadCtx sync_thread_ctx;
 
