@@ -314,7 +314,7 @@ int mempool_cache_update(MempoolCache *mcp, BitcoinRpcCtx *btc_rpc_ctx, HashesVe
     size_t new_count;
     BtcTx tx = {0};
     char txid_str[65];
-    struct mempool_entry mpe;
+    MempoolEntry mpe;
 
     new_count = 0;
     for (i = 0; i < new_txs_hashes.size; i++) {

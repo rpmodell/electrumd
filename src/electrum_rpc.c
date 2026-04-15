@@ -241,12 +241,17 @@ int blockchain_estimatefee(MempoolCache *mc_ptr, BitcoinRpcCtx *btc_rpc_ctx, TXD
 
 int blockchain_relay_fee(MempoolCache *mc_ptr, BitcoinRpcCtx *btc_rpc_ctx, TXDB *dbptr, SyncThreadCtx *sync_thread_ctx, jsonobj *params, jsonobj *response, int client_fd)
 {
-    if (btc_rpc_ctx->network_info.version < 0) {
+    BitcoinNetworkInfo network_info;
+    if (getnetworkinfo(btc_rpc_ctx, &network_info)) {
+        return JSONRPC_INTERNAL_ERROR;
+    }
+
+    if (network_info.version < 0) {
         return JSONRPC_INTERNAL_ERROR;
     }
 
     response->type = DOUBLE;
-    response->e.double_value = btc_rpc_ctx->network_info.relayfee;
+    response->e.double_value = network_info.relayfee;
 
     return JSONRPC_OK;
 }

@@ -30,12 +30,17 @@
 #ifndef __CORE_RPC_H__
 #define __CORE_RPC_H__
 
+#include "ujson.h"
+#include "hashes_vec.h"
+
 #include <pthread.h>
 #include <stddef.h>
 #include <stdint.h>
 
-#include "ujson.h"
-#include "hashes_vec.h"
+typedef struct {
+    char *userpw;
+    char *rpchost;
+} BitcoinRpcCtx;
 
 typedef struct {
     int version;
@@ -43,26 +48,19 @@ typedef struct {
     uint32_t protocolversion;
     int networkactive;
     double relayfee;
-} BitcoindNetworkInfo;
+} BitcoinNetworkInfo;
 
 typedef struct {
-    char *userpw;
-    char *rpchost;
-    BitcoindNetworkInfo network_info;
-    char chain[9];
-} BitcoinRpcCtx;
-
-struct mempool_entry {
     size_t vsize;
     double fee_base;
     double fee_mod;
     double fee_ancestor;
     double fee_descendant;
-};
+} MempoolEntry;
 
 int bitcoin_rpc_init(BitcoinRpcCtx *ctx, const char *host, const char *auth);
 int getblockchaininfo(BitcoinRpcCtx *ctx, char *chain);
-int getnetworkinfo(BitcoinRpcCtx *ctx, BitcoindNetworkInfo *info);
+int getnetworkinfo(BitcoinRpcCtx *ctx, BitcoinNetworkInfo *info);
 int getblockcount(BitcoinRpcCtx *ctx, long *height);
 int getblockhash(BitcoinRpcCtx *ctx, long blkno, char *hash);
 int getblockheader(BitcoinRpcCtx *ctx, const char *blkhash, uint8_t *header);
@@ -70,7 +68,7 @@ int getrawblock(BitcoinRpcCtx *ctx, const char *blkhash, uint8_t **rawblock);
 int getrawtransaction(BitcoinRpcCtx *ctx, const char *txid, uint8_t **rawtx);
 int getrawtransaction_json(BitcoinRpcCtx *ctx, const char *txid, int verbose, jsonobj *result);
 int getrawmempool(BitcoinRpcCtx *ctx, HashesVec *new_txs_hashes);
-int getmempoolentry(BitcoinRpcCtx *ctx, char *txid_str, struct mempool_entry *mpe);
+int getmempoolentry(BitcoinRpcCtx *ctx, char *txid_str, MempoolEntry *mpe);
 int sendrawtransaction(BitcoinRpcCtx *ctx, const char *rawtx, double feerate, char *txhash);
 double estimatesmartfee(BitcoinRpcCtx *ctx, int conf_target);
 

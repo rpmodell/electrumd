@@ -27,16 +27,16 @@
  * 
  */
 
+#include "bitcoin_rpc.h"
+
+#include "util.h"
+#include "logging.h"
+
 #include <curl/curl.h>
 #include <assert.h>
 #include <string.h>
 #include <stdlib.h>
 #include <unistd.h>
-
-#include "util.h"
-#include "logging.h"
-
-#include "bitcoin_rpc.h"
 
 struct largebuf {
 	size_t size;
@@ -169,13 +169,6 @@ int bitcoin_rpc_init(BitcoinRpcCtx *ctx, const char *host, const char *auth)
 
     ctx->rpchost = (char*) host;
     ctx->userpw = (char*) auth;
-
-    if (getnetworkinfo(ctx, &ctx->network_info))
-        return -2;
-
-    if (getblockchaininfo(ctx, ctx->chain))
-        return -2;
-
     return 0;
 }
 
@@ -268,7 +261,7 @@ getblockchaininfo_end:
       "warnings" : "str"                                 (string) any network and blockchain warnings
     }
  */
-int getnetworkinfo(BitcoinRpcCtx *ctx, BitcoindNetworkInfo *info)
+int getnetworkinfo(BitcoinRpcCtx *ctx, BitcoinNetworkInfo *info)
 {
     jsonobj *args = jsonobj_new();
     jsonobj *result = jsonobj_new();
@@ -508,7 +501,7 @@ getrawmempool_end:
     return ret;
 }
 
-int getmempoolentry(BitcoinRpcCtx *ctx, char *txid_str, struct mempool_entry *mpe)
+int getmempoolentry(BitcoinRpcCtx *ctx, char *txid_str, MempoolEntry *mpe)
 {
     /*
      * Result (for verbose = false)
@@ -531,7 +524,7 @@ int getmempoolentry(BitcoinRpcCtx *ctx, char *txid_str, struct mempool_entry *mp
 
     assert(result->type == JSON_OBJ);
 
-    memset(mpe, 0, sizeof(struct mempool_entry));
+    memset(mpe, 0, sizeof(MempoolEntry));
 
     e = jsonobj_lookup(result, "vsize");
     if ((ret = (e == NULL))) {

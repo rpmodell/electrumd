@@ -145,16 +145,29 @@ int main(int argc, char **argv)
 
     BitcoinRpcCtx rpc_ctx;
     if (bitcoin_rpc_init(&rpc_ctx, configs.bitcoin_rpc_host, btc_auth)) {
+        logerrf("error: cannot initialize: empty bitcoind rpc password or address");
+        return EXIT_FAILURE;
+    }
+
+    BitcoinNetworkInfo network_info;
+    if (getnetworkinfo(&rpc_ctx, &network_info)) {
+        logerrf("error: unable to comminucate with bitcoin daemon");
+        return EXIT_FAILURE;
+    }
+
+    char chain[9];
+    memset(chain, 0, sizeof(chain));
+    if (getblockchaininfo(&rpc_ctx, chain)) {
         logerrf("error: unable to comminucate with bitcoin daemon");
         return EXIT_FAILURE;
     }
 
     loginfof("successfully connected to bitcoin daemon: version=%d.%s, chain=%s, protocolversion=%d, relayfee=%lf",
-           rpc_ctx.network_info.version,
-           rpc_ctx.network_info.subversion,
-           rpc_ctx.chain,
-           rpc_ctx.network_info.protocolversion,
-           rpc_ctx.network_info.relayfee
+           network_info.version,
+           network_info.subversion,
+           chain,
+           network_info.protocolversion,
+           network_info.relayfee
            );
 
     //compare status with bitcoind blockhaight to check if an initial sync round is needed
@@ -197,7 +210,7 @@ int main(int argc, char **argv)
     fclose(pid_fp);
 
     BtcP2pProtoCtx p2p_ctx;
-    p2p_ctx_init(&p2p_ctx, configs.bitcoin_p2p_addr, configs.bitcoin_p2p_port, rpc_ctx.chain);
+    p2p_ctx_init(&p2p_ctx, configs.bitcoin_p2p_addr, configs.bitcoin_p2p_port, chain);
 
     if (prefetch_blocks2(&rpc_ctx, &p2p_ctx, &txdb, NULL)) {
         goto shutdown;
