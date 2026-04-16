@@ -27,10 +27,11 @@
  * 
  */
 
+#include "ujson.h"
+
 #include <stdlib.h>
 #include <string.h>
-
-#include "ujson.h"
+#include <assert.h>
 
 static char *str_clone(const char *str)
 {
@@ -64,9 +65,10 @@ static char *parse_quoted_str(char **buf)
     if ((**buf) == '"') {
         (*buf)++;
         
-        char *end_ptr = strchr((*buf), '"');
-        if (!end_ptr) {
-            return NULL;
+        char *end_ptr = NULL;
+        for (end_ptr = (*buf); *end_ptr != '\0' && *end_ptr != '"'; end_ptr++) {
+            if (*end_ptr == '\\') // If escape sequence skip the next character
+                end_ptr++;
         }
 
         size_t slen = end_ptr - *buf;
@@ -84,7 +86,6 @@ static char *parse_quoted_str(char **buf)
 jsonobj *jsonobj_new(void)
 {
 	jsonobj *e = (jsonobj*) malloc(sizeof(*e));
-	e->size = 0;
 	e->next = NULL;
 	e->key = NULL;
 	e->previous = NULL;
@@ -95,6 +96,9 @@ jsonobj *jsonobj_new(void)
     e->e.int_value = 0;
     e->e.double_value = 0.0;
     e->e.string_value = NULL;
+    e->e.list_value.capacity = 0;
+    e->e.list_value.size = 0;
+    e->e.list_value.list = NULL;
 	return e;
 }
 
@@ -102,12 +106,20 @@ void jsonobj_free(jsonobj *head)
 {
     if (!head) return;
 
+    size_t i;
     jsonobj *e = NULL, *o = NULL;
     switch (head->type) {
     case STRING:
         free(head->e.string_value);
         break;
     case LIST:
+        for (i = 0; i < head->e.list_value.size; i++)
+            jsonobj_free(head->e.list_value.list[i]);
+
+        if (head->e.list_value.list)
+            free(head->e.list_value.list);
+
+        break;
     case JSON_OBJ:
         if (head->child) {
             e = head->child->previous;
@@ -145,7 +157,19 @@ static void put(jsonobj *parent, jsonobj *e)
 	e->parent = parent;
 	e->previous = prev;
 	parent->child = e;
-	parent->size++;
+}
+
+static void list_add(jsonobj *parent, jsonobj *e)
+{
+    if (parent->e.list_value.list == NULL || parent->e.list_value.size >= parent->e.list_value.capacity) {
+        if (parent->e.list_value.capacity == 0)
+            parent->e.list_value.capacity = 5;
+
+        parent->e.list_value.capacity *= 2;
+        parent->e.list_value.list = (jsonobj**) realloc(parent->e.list_value.list, parent->e.list_value.capacity * sizeof(jsonobj*));
+    }
+
+    parent->e.list_value.list[parent->e.list_value.size++] = e;
 }
 
 static int parse_buff(jsonobj *element, char **buf)
@@ -158,7 +182,6 @@ static int parse_buff(jsonobj *element, char **buf)
 
 	switch ((**buf)) {
 	case '{': {	    
-		element->size = 0;
 		element->type = JSON_OBJ;
 		(*buf)++;
         if (skip_spaces(buf))
@@ -198,8 +221,7 @@ static int parse_buff(jsonobj *element, char **buf)
 		return 0;
 	    
 	}
-	case '[': {		
-		element->size = 0;
+    case '[': {
 		element->type = LIST;
 		(*buf)++;
         if (skip_spaces(buf))
@@ -217,7 +239,7 @@ static int parse_buff(jsonobj *element, char **buf)
 			else if ((**buf) != ']')
                 goto parsing_fail;
 			    
-			put(element, e);
+            list_add(element, e);
 		}
 
 		(*buf)++;
@@ -292,7 +314,8 @@ int jsonobj_parse_str(jsonobj *element, char *str)
 }
 
 char *jsonobj_to_str(jsonobj *head)
-{	
+{
+    size_t i;
 	jsonobj *e = NULL;
 	enum json_type t = head->type;
     size_t str_capacity = 1;
@@ -332,17 +355,16 @@ char *jsonobj_to_str(jsonobj *head)
 		break;
 	case LIST:
 		sprintf(str, "[");
-		for (e = head->child; e && e->previous; e = e->previous);
-		for (; e; e = e->next) {
-			char *istr = jsonobj_to_str(e);
-            str_capacity += strlen(istr) + 2 + (e->next ? 1 : 0);
+        for (i = 0; i < head->e.list_value.size; i++) {
+            char *istr = jsonobj_to_str(head->e.list_value.list[i]);
+            str_capacity += strlen(istr) + 2 + ((i + 1 < head->e.list_value.size) ? 1 : 0);
 
-			str = (char*) realloc(str, str_capacity * sizeof(*str));
-			strcat(str, istr);
-			if (e->next)
-				strcat(str, ",");
-			free(istr);
-		}
+            str = (char*) realloc(str, str_capacity * sizeof(*str));
+            strcat(str, istr);
+            if (i + 1 < head->e.list_value.size)
+                strcat(str, ",");
+            free(istr);
+        }
 		strcat(str, "]");
 		break;
 	case JSON_OBJ:
@@ -454,39 +476,52 @@ jsonobj *jsonobj_put_str(jsonobj *parent, const char *key, const char *str)
 
 void jsonobj_list_add_null(jsonobj *list)
 {
-	jsonobj_put_null(list, NULL);
+    jsonobj *e = jsonobj_new();
+    e->type = JSON_NULL;
+
+    list_add(list, e);
 }
 
 void jsonobj_list_add_list(jsonobj *list, jsonobj *child)
 {
-    child->type = LIST;
-    put(list, child);
+    list_add(list, child);
 }
 
 void jsonobj_list_add_jsonobj(jsonobj *list, jsonobj *child)
 {
-    child->type = JSON_OBJ;
-    put(list, child);
+    list_add(list, child);
 }
 
 void jsonobj_list_add_int(jsonobj *list, long n)
 {
-	jsonobj_put_int(list, NULL, n);
+    jsonobj *e = jsonobj_new();
+    e->type = INT;
+    e->e.int_value = n;
+    list_add(list, e);
 }
 
 void jsonobj_list_add_double(jsonobj *list, double d)
 {
-	jsonobj_put_double(list, NULL, d);
+    jsonobj *e = jsonobj_new();
+    e->type = DOUBLE;
+    e->e.double_value = d;
+    list_add(list, e);
 }
 
 void jsonobj_list_add_bool(jsonobj *list, int b)
 {
-	jsonobj_put_bool(list, NULL, b);
+    jsonobj *e = jsonobj_new();
+    e->type = BOOL;
+    e->e.bool_value = b;
+    list_add(list, e);
 }
 
 void jsonobj_list_add_str(jsonobj *list, const char *str)
 {
-    jsonobj_put_str(list, NULL, str);
+    jsonobj *e = jsonobj_new();
+    e->type = STRING;
+    e->e.string_value = str_clone(str);
+    list_add(list, e);
 }
 
 jsonobj *jsonobj_lookup(jsonobj *head, const char *key)
@@ -499,17 +534,15 @@ jsonobj *jsonobj_lookup(jsonobj *head, const char *key)
 	return e;
 }
 
-jsonobj *jsonobj_list_get_at(jsonobj *list, int i)
+jsonobj *jsonobj_list_get_at(jsonobj *list, size_t i)
 {
-	jsonobj *e = NULL;
-	int lindex = list->size - 1;
-    for (e = list->child; e; e = e->previous, lindex--) {
-        if (lindex == i) {
-            return e;
-        }
-    }
-	
-    return NULL;
+    if (list->type != LIST)
+        return NULL;
+
+    if (i >= list->e.list_value.size)
+        return NULL;
+
+    return list->e.list_value.list[i];
 }
 
 jsonobj *jsonobj_remove(jsonobj *parent, const char *key)
@@ -529,8 +562,7 @@ jsonobj *jsonobj_remove(jsonobj *parent, const char *key)
 
 		e->next = NULL;
 		e->previous = NULL;
-		e->parent = NULL;	
-		parent->size--;
+        e->parent = NULL;
 	}
 	return e;
 }

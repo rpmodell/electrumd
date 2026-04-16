@@ -41,7 +41,7 @@
 #define JSONOBJ_IS_OBJECT(obj) (obj->type == JSON_OBJ)
 #define JSONOBJ_IS_NULL(obj) (obj->type == JSON_NULL)
 
-#define JSONOBJ_LIST_FOREACH(list, obj, i) for (obj = list->child, i = list->size - 1; obj && i >= 0; obj = obj->previous, i--)
+#define JSONOBJ_LIST_SIZE(L) ((L)->e.list_value.size)
 #define JSONOBJ_FOREACH(list, obj) for (obj = list->child; obj; obj = obj->previous)
 
 enum json_type {
@@ -53,7 +53,6 @@ typedef struct _jsonobj jsonobj;
 struct _jsonobj {
     char *key;
     enum json_type type;
-    size_t size;
     jsonobj *parent;
     jsonobj *child;
     jsonobj *previous;
@@ -63,6 +62,11 @@ struct _jsonobj {
         int bool_value;
         double double_value;
         char *string_value;
+        struct {
+            size_t size;
+            size_t capacity;
+            jsonobj **list;
+        } list_value;
     } e;
 };
 
@@ -89,7 +93,7 @@ void jsonobj_list_add_bool(jsonobj *previous, int b);
 void jsonobj_list_add_str(jsonobj *previous, const char *str);
 
 jsonobj *jsonobj_lookup(jsonobj *head, const char *key);
-jsonobj *jsonobj_list_get_at(jsonobj *list, int i);
+jsonobj *jsonobj_list_get_at(jsonobj *list, size_t i);
 
 jsonobj *jsonobj_remove(jsonobj *parent, const char *key);
 

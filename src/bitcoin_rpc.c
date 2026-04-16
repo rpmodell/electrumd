@@ -490,9 +490,11 @@ int getrawmempool(BitcoinRpcCtx *ctx, HashesVec *new_txs_hashes)
 	assert(result->type == LIST);
 
 	jsonobj *e = NULL;
-    long pos = 0;
-    JSONOBJ_FOREACH(result, e) {
+    ssize_t pos = 0;
+    size_t i;
+    for (i = 0; i < JSONOBJ_LIST_SIZE(result); i++) {
         pos = hashes_vec_add(new_txs_hashes, NULL);
+        e = jsonobj_list_get_at(result, i);
         reverse_hex_to_bytes(e->e.string_value, new_txs_hashes->v[pos]);
 	}
 
@@ -617,11 +619,10 @@ double estimatesmartfee(BitcoinRpcCtx *ctx, int conf_target)
                             have been observed to make an estimate for any number of blocks.
         }
     */
-    jsonobj *args = jsonobj_new();
-    jsonobj_put_int(args, "conf_target", conf_target);
+    jsonobj *args = jsonobj_put_list(NULL, NULL);
+    jsonobj_list_add_int(args, conf_target);
 
     jsonobj *result = jsonobj_new();
-    args->type = LIST;
 
     double feerate = -1.0;
     int ret = curl_core_rpc_req(ctx, "estimatesmartfee", args, result);

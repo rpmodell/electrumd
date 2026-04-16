@@ -270,7 +270,6 @@ int blockchain_scripthash_getbalance(MempoolCache *mc_ptr, BitcoinRpcCtx *btc_rp
 
     char hs[65];
     bytes_to_hex(scripthash, 32, hs);
-    logdebugf("blockchain_scripthash_getbalance -> %s", hs);
 
 	long confirmed = 0, unconfirmed = 0;
     Utxo *utxos = NULL;
@@ -846,7 +845,7 @@ static int protocol_version_atoi(const char *s)
 
 int server_version(MempoolCache *mc_ptr, BitcoinRpcCtx *btc_rpc_ctx, TXDB *dbptr, SyncThreadCtx *sync_thread_ctx, jsonobj *params, jsonobj *response, int client_fd)
 {
-    if (params->size < 2)
+    if (JSONOBJ_LIST_SIZE(params) < 2)
         return JSONRPC_INVALID_PARAMS;
 
     jsonobj *protocol_version = jsonobj_list_get_at(params, 1);
@@ -932,7 +931,6 @@ int server_donation_address(MempoolCache *mc_ptr, BitcoinRpcCtx *btc_rpc_ctx, TX
 int server_peers_subscribe(MempoolCache *mc_ptr, BitcoinRpcCtx *btc_rpc_ctx, TXDB *dbptr, SyncThreadCtx *sync_thread_ctx, jsonobj *params, jsonobj *response, int client_fd)
 {
     response->type = LIST;
-    response->size = 0;
 
     return JSONRPC_OK;
 }
@@ -969,6 +967,8 @@ int electrum_rpc_height_notify(TXDB *dbptr, uint32_t height)
     jsonobj_list_add_jsonobj(params, resp);
 
     char *payload_str = jsonobj_to_str(payload);
+    logdebugf("electrum rpc server: notify height: %s", payload_str);
+
     size_t payload_sz = strlen(payload_str);
     payload_str[payload_sz++] = '\n';
     jsonobj_free(payload);
@@ -979,8 +979,6 @@ int electrum_rpc_height_notify(TXDB *dbptr, uint32_t height)
         if (fd > -1 && subscriptions[i].subscr_mode & SUBSRIPTION_MODE_HEADERS)
             send(fd, payload_str, payload_sz, 0);
     }
-
-    logdebugf("electrum rpc server: notify height: %s", payload_str);
 
     free(payload_str);
 
@@ -1017,6 +1015,8 @@ int electrum_rpc_new_scripthashes_notify(TXDB *dbptr, MempoolCache *mc_ptr, cons
                     jsonobj_list_add_str(params, hashstr);
 
                     payload_str = jsonobj_to_str(payload);
+                    logdebugf("electrum rpc server: notify scripthash status: %s", payload_str);
+
                     payload_sz = strlen(payload_str);
                     payload_str[payload_sz++] = '\n';
                     jsonobj_free(payload);
@@ -1027,11 +1027,8 @@ int electrum_rpc_new_scripthashes_notify(TXDB *dbptr, MempoolCache *mc_ptr, cons
 
         }
 
-        if (payload_str) {
-            logdebugf("electrum rpc server: notify scripthash status: %s", payload_str);
-
+        if (payload_str)
             free(payload_str);
-        }
     }
 
     return 0;
@@ -1176,10 +1173,10 @@ send_response:
         }
 
         resp_str = jsonobj_to_str(response);
+        logdebugf("electrum rpc server: send response %s", resp_str);
+
         resp_str_sz = strlen(resp_str);
         resp_str[resp_str_sz++] = '\n';
-
-        logdebugf("electrum rpc server: send response %s", resp_str);
 
         if (write(client_fd, resp_str, resp_str_sz) < 0) {
             logerrf("electrum rpc server: socket write fail: %s", strerror(errno));
