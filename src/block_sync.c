@@ -441,14 +441,14 @@ void *btc_sync_thread_func(void *o)
 
         mempool_cache_update(arg->mc_ptr, arg->core_rpc_ctx, &new_scripthashes);
         if (getblockcount(arg->core_rpc_ctx, &last_height)) {
-            logerrf("sync: failed to fetch new height");
+            logerrf("block sync: failed to fetch new height");
             continue;
         }
 
         if (last_height - prev_height) {
-            loginfof("sync: new_height=%ld", last_height);
+            loginfof("block sync: new_height=%ld", last_height);
             if (prefetch_blocks2(arg->core_rpc_ctx, arg->p2p_ctx, arg->dbptr, &new_scripthashes)) {
-                logerrf("sync: block fetch update failed");
+                logerrf("block sync: block fetch update failed");
                 continue;
             }
 
@@ -456,7 +456,7 @@ void *btc_sync_thread_func(void *o)
                 electrum_rpc_height_notify(arg->dbptr, (uint32_t) ++prev_height);
         }
 
-        logdebugf("sync: fetch new %ld scriphashes", new_scripthashes.size);
+        logdebugf("block sync: fetch new %ld scriphashes", new_scripthashes.size);
 
         //notify for scripthash changes
         electrum_rpc_new_scripthashes_notify(arg->dbptr, arg->mc_ptr, &new_scripthashes);

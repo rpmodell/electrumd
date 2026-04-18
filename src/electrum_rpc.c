@@ -1272,7 +1272,7 @@ int electrum_server_start(MempoolCache *mcp, BitcoinRpcCtx *btc_rpc_ctx, TXDB *d
                         fds[i].events = POLLIN | POLLHUP | POLLPRI;
                         clients_no++;
 
-                        logdebugf("electrum rpc server: new connection: accept %s:%d",
+                        loginfof("electrum rpc server: new connection: accept %s:%d",
                                   inet_ntoa(cli.sin_addr),
                                   ntohs(cli.sin_port)
                                   );

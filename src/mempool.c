@@ -370,7 +370,7 @@ int mempool_cache_update(MempoolCache *mcp, BitcoinRpcCtx *btc_rpc_ctx, HashesVe
 	fee_histogram_compact(&mcp->fee_histogram, &mp_hist);
 	fee_histogram_free(&mp_hist);
 
-    logdebugf("mempool cache: fetched new %ld mempool transactions, current mempool size is %ld", new_count, mcp->tx_cache.size);
+    loginfof("mempool cache: fetched new %ld mempool transactions, current mempool size is %ld", new_count, mcp->tx_cache.size);
 
 mempool_cache_update_end:
     hashes_vec_free(&new_txs_hashes);
