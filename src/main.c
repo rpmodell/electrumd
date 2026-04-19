@@ -35,6 +35,8 @@
 #include <errno.h>
 #include <unistd.h>
 #include <sys/stat.h>
+#include <openssl/ssl.h>
+#include <openssl/err.h>
 
 #include "shared.h"
 #include "config.h"
@@ -51,6 +53,19 @@ static void signal_handler(int signum)
 {
     loginfof("electrumd: SIGINT caught: stopping");
     electrumd_running = 0;
+}
+
+static void ssl_init()
+{
+    SSL_load_error_strings();
+    SSL_library_init();
+    OpenSSL_add_all_algorithms();
+}
+
+static void ssl_shutdown()
+{
+    ERR_free_strings();
+    EVP_cleanup();
 }
 
 int main(int argc, char **argv)
@@ -230,13 +245,19 @@ int main(int argc, char **argv)
 
     sync_thread_start(&sync_thread_ctx, &rpc_ctx, &p2p_ctx, &txdb, &mcp);
 
-    electrum_server_start(&mcp, &rpc_ctx, &txdb, &sync_thread_ctx, configs.electrumd_rpc_bind, configs.electrumd_rpc_port);
+    if (configs.electrumd_rpc_listen_ssl)
+        ssl_init();
+
+    electrum_server_start(&mcp, &rpc_ctx, &txdb, &sync_thread_ctx, &configs);
 
     sync_thread_stop(&sync_thread_ctx);
 
 shutdown:
     loginfof("electrumd: exited");
     txdb_close(&txdb);
+
+    if (configs.electrumd_rpc_listen_ssl)
+        ssl_shutdown();
 
     remove(configs.pid_file_path);
     configs_free(&configs);

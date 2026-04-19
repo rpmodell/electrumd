@@ -68,6 +68,9 @@ void configs_init(ElectrumdConfigs *configs)
     configs->bitcoin_p2p_port = DEFAULT_BITCOIND_P2P_PORT;
     configs->electrumd_rpc_bind = NULL;
     configs->electrumd_rpc_port = DEFAULT_ELECTRUMD_PORT;
+	configs->electrumd_rpc_listen_ssl = 0;
+	configs->electrumd_rpc_ssl_cert_file = NULL;
+	configs->electrumd_rpc_ssl_priv_key_file = NULL;
     configs->cache_size = DEFAULT_CACAHE_SIZE;
     configs->db_dir = NULL;
     configs->banner = NULL;
@@ -94,6 +97,12 @@ void configs_free(ElectrumdConfigs *configs)
     if (configs->electrumd_rpc_bind)
         free(configs->electrumd_rpc_bind);
 
+    if (configs->electrumd_rpc_ssl_cert_file)
+        free(configs->electrumd_rpc_ssl_cert_file);
+
+    if (configs->electrumd_rpc_ssl_priv_key_file)
+        free(configs->electrumd_rpc_ssl_priv_key_file);
+
     if (configs->db_dir)
         free(configs->db_dir);
 
@@ -112,6 +121,9 @@ void configs_print(ElectrumdConfigs *configs)
     printf("\tbitcoin_rpc_host=%s\n", configs->bitcoin_rpc_host);
     printf("\tblocks_cache_max=%d\n", configs->cache_size);
     printf("\telectrumd_rpc_bind=%s:%d\n", configs->electrumd_rpc_bind, configs->electrumd_rpc_port);
+    printf("\telectrumd_rpc_listen_ssl=%d\n", configs->electrumd_rpc_listen_ssl);
+    printf("\telectrumd_rpc_ssl_cert_file=%s\n", configs->electrumd_rpc_ssl_cert_file);
+    printf("\telectrumd_rpc_ssl_priv_key_file=%s\n", configs->electrumd_rpc_ssl_priv_key_file);
     printf("\tdb_dir=%s\n", configs->db_dir);
     printf("\tdonation_address=%s\n", configs->donation_address);
     printf("\tbanner=%s\n", configs->banner);
@@ -120,12 +132,15 @@ void configs_print(ElectrumdConfigs *configs)
 
 int configs_check(ElectrumdConfigs *configs, int opt_daemon)
 {	
-    if (!configs->bitcoin_rpc_auth) {
-        return -1;
-    }
-    if (!configs->db_dir) {
-        return -2;
-    }
+    if (!configs->bitcoin_rpc_auth)
+		return -1;
+
+    if (!configs->db_dir)
+		return -2;
+
+	if (configs->electrumd_rpc_listen_ssl 
+		&& (!configs->electrumd_rpc_ssl_cert_file || !configs->electrumd_rpc_ssl_priv_key_file))
+		return -2;
 
     /*
         Fill with reasonable defaults
@@ -206,6 +221,17 @@ int configs_parse_file(ElectrumdConfigs *configs, const char *fpath)
                 configs->electrumd_rpc_bind = str_clone(value);
             } else if (!strcmp(key, "electrumd_rpc_port")) {
                 configs->electrumd_rpc_port = atoi(value);
+			} else if (!strcmp(key, "electrumd_listen_ssl")) {
+				if (!strcmp(value, "yes")) 
+					configs->electrumd_rpc_listen_ssl = 1;
+				else if (!strcmp(value, "no"))
+					configs->electrumd_rpc_listen_ssl = 0;
+				else
+					goto parse_fail;
+			} else if (!strcmp(key, "electrumd_ssl_cert_file")) {
+				configs->electrumd_rpc_ssl_cert_file = str_clone(value);
+			} else if (!strcmp(key, "electrumd_ssl_priv_key_file")) {
+				configs->electrumd_rpc_ssl_priv_key_file = str_clone(value);
             } else if (!strcmp(key, "cache_size")) {
                 char unit;
                 switch(sscanf(value, "%u%c", &configs->cache_size, &unit)) {

@@ -27,6 +27,15 @@
  * 
  */
 
+#include "electrum_rpc.h"
+
+#include "shared.h"
+#include "bitcoin_common.h"
+#include "merkle.h"
+#include "ujson.h"
+#include "util.h"
+#include "logging.h"
+
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
@@ -40,22 +49,23 @@
 #include <sys/param.h>
 #include <errno.h>
 
-#include "shared.h"
-#include "bitcoin_common.h"
-#include "merkle.h"
-#include "ujson.h"
-#include "util.h"
-#include "logging.h"
+#include <openssl/bio.h>
+#include <openssl/ssl.h>
+#include <openssl/err.h>
 
-#include "electrum_rpc.h"
+#define SOCKET_READ(C,B,N) ((C)->ssl ? SSL_read((C)->ssl, (B), N) : read((C)->client_fd, (B), N))
+#define SOCKET_WRITE(C,B,N) ((C)->ssl ? SSL_write((C)->ssl, (B), N) : write((C)->client_fd, (B), N))
 
 #define SUBSRIPTION_MODE_HEADERS    0x01
 #define SUBSRIPTION_MODE_SCRIPTHASH 0x02
 
-struct subscription {
-    int subscr_mode;
-    int client_fd; //managed by poll set as -1
-    HashesVec scriphashes;
+struct client {
+	int client_fd;
+	SSL *ssl;
+    struct {
+        int subscr_mode;
+        HashesVec scriphashes;
+    } subscr;
 };
 
 int srv_fd = 0;
@@ -63,19 +73,40 @@ char *srv_addr = NULL;
 int srv_port = 0;
 char *srv_banner = NULL;
 char *donation_address = NULL;
+struct client clients[MAX_CLIENTS];
 
-struct subscription subscriptions[MAX_CLIENTS];
-
-static struct subscription *subscription_get(int client_fd)
+static int client_add(size_t index, int fd, SSL_CTX *ssl_ctx)
 {
-    int i;
-    for (i = 0; i < MAX_CLIENTS; i++) {
-        if (subscriptions[i].client_fd == client_fd) {
-            return &subscriptions[i];
+    struct client *client = &clients[index];
+    client->client_fd = fd;
+    client->ssl = NULL;
+    client->subscr.subscr_mode = 0;
+    hashes_vec_init(&client->subscr.scriphashes);
+
+    if (ssl_ctx) {
+        client->ssl = SSL_new(ssl_ctx);
+        SSL_set_fd(client->ssl, fd);
+        if (SSL_accept(client->ssl) <= 0) {
+            logerrf("electrum rpc: ssl connection accept error");
+//            ERR_print_errors_fp(stderr);
+            return -1;
         }
     }
 
-    return NULL;
+    return 0;
+}
+
+static inline void client_remove(size_t index)
+{
+    struct client *client = &clients[index];
+    client->client_fd = -1;
+    hashes_vec_free(&client->subscr.scriphashes);
+
+    if (client->ssl) {
+        SSL_shutdown(client->ssl);
+        SSL_free(client->ssl);
+        client->ssl = NULL;
+    }
 }
 
 static int scripthash_status(TXDB *dbptr, MempoolCache *mc_ptr, uint8_t *status_hash, uint8_t *scripthash)
@@ -125,12 +156,12 @@ static int scripthash_status(TXDB *dbptr, MempoolCache *mc_ptr, uint8_t *status_
 /*
         RPC METHODS
 */
-int not_implemented(MempoolCache *mc_ptr, BitcoinRpcCtx *btc_rpc_ctx, TXDB *dbptr, SyncThreadCtx *sync_thread_ctx, jsonobj *params, jsonobj *response, int client_fd)
+int not_implemented(MempoolCache *mc_ptr, BitcoinRpcCtx *btc_rpc_ctx, TXDB *dbptr, SyncThreadCtx *sync_thread_ctx, jsonobj *params, jsonobj *response, struct client *client)
 {
     return JSONRPC_OK;
 }
 
-int blockchain_block_header(MempoolCache *mc_ptr, BitcoinRpcCtx *btc_rpc_ctx, TXDB *dbptr, SyncThreadCtx *sync_thread_ctx, jsonobj *params, jsonobj *response, int client_fd)
+int blockchain_block_header(MempoolCache *mc_ptr, BitcoinRpcCtx *btc_rpc_ctx, TXDB *dbptr, SyncThreadCtx *sync_thread_ctx, jsonobj *params, jsonobj *response, struct client *client)
 {
     /*
     {
@@ -157,7 +188,7 @@ int blockchain_block_header(MempoolCache *mc_ptr, BitcoinRpcCtx *btc_rpc_ctx, TX
     return JSONRPC_OK;
 }
 
-int blockchain_block_headers(MempoolCache *mc_ptr, BitcoinRpcCtx *btc_rpc_ctx, TXDB *dbptr, SyncThreadCtx *sync_thread_ctx, jsonobj *params, jsonobj *response, int client_fd)
+int blockchain_block_headers(MempoolCache *mc_ptr, BitcoinRpcCtx *btc_rpc_ctx, TXDB *dbptr, SyncThreadCtx *sync_thread_ctx, jsonobj *params, jsonobj *response, struct client *client)
 {
     /*
     {
@@ -219,7 +250,7 @@ blockchain_block_headers_end:
     return ret;
 }
 
-int blockchain_estimatefee(MempoolCache *mc_ptr, BitcoinRpcCtx *btc_rpc_ctx, TXDB *dbptr, SyncThreadCtx *sync_thread_ctx, jsonobj *params, jsonobj *response, int client_fd)
+int blockchain_estimatefee(MempoolCache *mc_ptr, BitcoinRpcCtx *btc_rpc_ctx, TXDB *dbptr, SyncThreadCtx *sync_thread_ctx, jsonobj *params, jsonobj *response, struct client *client)
 {
     jsonobj *conf_target_param = jsonobj_list_get_at(params, 0);
     if (!conf_target_param || !JSONOBJ_IS_INT(conf_target_param)) {
@@ -239,7 +270,7 @@ int blockchain_estimatefee(MempoolCache *mc_ptr, BitcoinRpcCtx *btc_rpc_ctx, TXD
     return JSONRPC_OK;
 }
 
-int blockchain_relay_fee(MempoolCache *mc_ptr, BitcoinRpcCtx *btc_rpc_ctx, TXDB *dbptr, SyncThreadCtx *sync_thread_ctx, jsonobj *params, jsonobj *response, int client_fd)
+int blockchain_relay_fee(MempoolCache *mc_ptr, BitcoinRpcCtx *btc_rpc_ctx, TXDB *dbptr, SyncThreadCtx *sync_thread_ctx, jsonobj *params, jsonobj *response, struct client *client)
 {
     BitcoinNetworkInfo network_info;
     if (getnetworkinfo(btc_rpc_ctx, &network_info)) {
@@ -256,7 +287,7 @@ int blockchain_relay_fee(MempoolCache *mc_ptr, BitcoinRpcCtx *btc_rpc_ctx, TXDB 
     return JSONRPC_OK;
 }
 
-int blockchain_scripthash_getbalance(MempoolCache *mc_ptr, BitcoinRpcCtx *btc_rpc_ctx, TXDB *dbptr, SyncThreadCtx *sync_thread_ctx, jsonobj *params, jsonobj *response, int client_fd)
+int blockchain_scripthash_getbalance(MempoolCache *mc_ptr, BitcoinRpcCtx *btc_rpc_ctx, TXDB *dbptr, SyncThreadCtx *sync_thread_ctx, jsonobj *params, jsonobj *response, struct client *client)
 {
     jsonobj *scripthash_param = jsonobj_list_get_at(params, 0);
     if (!scripthash_param || !JSONOBJ_IS_STRING(scripthash_param)) {
@@ -363,7 +394,7 @@ static int scripthash_history(MempoolCache *mc_ptr, TXDB *dbptr, jsonobj *respon
 	return 0;
 }
 
-int blockchain_scripthash_gethistory(MempoolCache *mc_ptr, BitcoinRpcCtx *btc_rpc_ctx, TXDB *dbptr, SyncThreadCtx *sync_thread_ctx, jsonobj *params, jsonobj *response, int client_fd)
+int blockchain_scripthash_gethistory(MempoolCache *mc_ptr, BitcoinRpcCtx *btc_rpc_ctx, TXDB *dbptr, SyncThreadCtx *sync_thread_ctx, jsonobj *params, jsonobj *response, struct client *client)
 {
     jsonobj *scripthash_param = jsonobj_list_get_at(params, 0);
     if (!scripthash_param || !JSONOBJ_IS_STRING(scripthash_param)) {
@@ -391,7 +422,7 @@ int blockchain_scripthash_gethistory(MempoolCache *mc_ptr, BitcoinRpcCtx *btc_rp
     return scripthash_history(mc_ptr, dbptr, response, scripthash, 1);
 }
 
-int blockchain_scripthash_getmempool(MempoolCache *mc_ptr, BitcoinRpcCtx *btc_rpc_ctx, TXDB *dbptr, SyncThreadCtx *sync_thread_ctx, jsonobj *params, jsonobj *response, int client_fd)
+int blockchain_scripthash_getmempool(MempoolCache *mc_ptr, BitcoinRpcCtx *btc_rpc_ctx, TXDB *dbptr, SyncThreadCtx *sync_thread_ctx, jsonobj *params, jsonobj *response, struct client *client)
 {
 	
     jsonobj *scripthash_param = jsonobj_list_get_at(params, 0);
@@ -417,7 +448,7 @@ int blockchain_scripthash_getmempool(MempoolCache *mc_ptr, BitcoinRpcCtx *btc_rp
     return scripthash_history(mc_ptr, dbptr, response, scripthash, 0);
 }
 
-int blockchain_scripthash_listunspent(MempoolCache *mc_ptr, BitcoinRpcCtx *btc_rpc_ctx, TXDB *dbptr, SyncThreadCtx *sync_thread_ctx, jsonobj *params, jsonobj *response, int client_fd)
+int blockchain_scripthash_listunspent(MempoolCache *mc_ptr, BitcoinRpcCtx *btc_rpc_ctx, TXDB *dbptr, SyncThreadCtx *sync_thread_ctx, jsonobj *params, jsonobj *response, struct client *client)
 {
 	/* JSON response format
 	 * [
@@ -494,20 +525,9 @@ int blockchain_scripthash_listunspent(MempoolCache *mc_ptr, BitcoinRpcCtx *btc_r
     return JSONRPC_OK;
 }
 
-int blockchain_headers_subscribe(MempoolCache *mc_ptr, BitcoinRpcCtx *btc_rpc_ctx, TXDB *dbptr, SyncThreadCtx *sync_thread_ctx, jsonobj *params, jsonobj *response, int client_fd)
+int blockchain_headers_subscribe(MempoolCache *mc_ptr, BitcoinRpcCtx *btc_rpc_ctx, TXDB *dbptr, SyncThreadCtx *sync_thread_ctx, jsonobj *params, jsonobj *response, struct client *client)
 {
-    struct subscription *s = subscription_get(client_fd);
-    if (!s) {
-        s = subscription_get(-1);
-        if (s) {
-            s->client_fd = client_fd;
-        } else {
-            logdebugf("electrum rpc server: subscriptions limits reached");
-            return JSONRPC_INTERNAL_ERROR;
-        }
-    }
-
-    s->subscr_mode |= SUBSRIPTION_MODE_HEADERS;
+    client->subscr.subscr_mode |= SUBSRIPTION_MODE_HEADERS;
 
     uint8_t header[BLOCK_HEADER_SIZE];
     char headerstr[BLOCK_HEADER_SIZE*2+1];
@@ -522,7 +542,7 @@ int blockchain_headers_subscribe(MempoolCache *mc_ptr, BitcoinRpcCtx *btc_rpc_ct
     return JSONRPC_OK;
 }
 
-int blockchain_scripthash_subscribe(MempoolCache *mc_ptr, BitcoinRpcCtx *btc_rpc_ctx, TXDB *dbptr, SyncThreadCtx *sync_thread_ctx, jsonobj *params, jsonobj *response, int client_fd)
+int blockchain_scripthash_subscribe(MempoolCache *mc_ptr, BitcoinRpcCtx *btc_rpc_ctx, TXDB *dbptr, SyncThreadCtx *sync_thread_ctx, jsonobj *params, jsonobj *response, struct client *client)
 {
     jsonobj *scripthash_param = jsonobj_list_get_at(params, 0);
     if (!scripthash_param || !JSONOBJ_IS_STRING(scripthash_param)) {
@@ -534,21 +554,9 @@ int blockchain_scripthash_subscribe(MempoolCache *mc_ptr, BitcoinRpcCtx *btc_rpc
         return JSONRPC_INVALID_PARAMS;
     }
 
-    struct subscription *s = subscription_get(client_fd);
-    if (!s) {
-        s = subscription_get(-1);
-        if (s) {
-            s->client_fd = client_fd;
-            logdebugf("electrum rpc server: server add new subscr %d", client_fd);
-        } else {
-            logdebugf("electrum rpc server: subscriptions limits reached");
-            return JSONRPC_INTERNAL_ERROR;
-        }
-    }
-
-    s->subscr_mode |= SUBSRIPTION_MODE_SCRIPTHASH;
-    if (hashes_vec_find(&s->scriphashes, scripthash) == -1) {
-        hashes_vec_add(&s->scriphashes, scripthash);
+    client->subscr.subscr_mode |= SUBSRIPTION_MODE_SCRIPTHASH;
+    if (hashes_vec_find(&client->subscr.scriphashes, scripthash) == -1) {
+        hashes_vec_add(&client->subscr.scriphashes, scripthash);
 
         uint8_t status_hash[32];
         if (!scripthash_status(dbptr, mc_ptr, status_hash, scripthash)) {
@@ -565,7 +573,7 @@ int blockchain_scripthash_subscribe(MempoolCache *mc_ptr, BitcoinRpcCtx *btc_rpc
     return JSONRPC_INTERNAL_ERROR;
 }
 
-int blockchain_scripthash_unsubscribe(MempoolCache *mc_ptr, BitcoinRpcCtx *btc_rpc_ctx, TXDB *dbptr, SyncThreadCtx *sync_thread_ctx, jsonobj *params, jsonobj *response, int client_fd)
+int blockchain_scripthash_unsubscribe(MempoolCache *mc_ptr, BitcoinRpcCtx *btc_rpc_ctx, TXDB *dbptr, SyncThreadCtx *sync_thread_ctx, jsonobj *params, jsonobj *response, struct client *client)
 {
     jsonobj *scripthash_param = jsonobj_list_get_at(params, 0);
     if (!scripthash_param || !JSONOBJ_IS_STRING(scripthash_param)) {
@@ -580,20 +588,16 @@ int blockchain_scripthash_unsubscribe(MempoolCache *mc_ptr, BitcoinRpcCtx *btc_r
     response->type = BOOL;
     response->e.bool_value = 0;
 
-    struct subscription *s = subscription_get(client_fd);
-    if (s) {
-        long index = hashes_vec_find(&s->scriphashes, scripthash);
-        if (index > -1) {
-            hashes_vec_remove(&s->scriphashes, index);
-
-            response->e.bool_value = 1;
-        }
+    long index = hashes_vec_find(&client->subscr.scriphashes, scripthash);
+    if (index > -1) {
+        hashes_vec_remove(&client->subscr.scriphashes, index);
+        response->e.bool_value = 1;
     }
 
     return JSONRPC_OK;
 }
 
-int blockchain_transaction_broadcast(MempoolCache *mc_ptr, BitcoinRpcCtx *btc_rpc_ctx, TXDB *dbptr, SyncThreadCtx *sync_thread_ctx, jsonobj *params, jsonobj *response, int client_fd)
+int blockchain_transaction_broadcast(MempoolCache *mc_ptr, BitcoinRpcCtx *btc_rpc_ctx, TXDB *dbptr, SyncThreadCtx *sync_thread_ctx, jsonobj *params, jsonobj *response, struct client *client)
 {
     jsonobj *hex_param = jsonobj_list_get_at(params, 0);
     if (!hex_param || !JSONOBJ_IS_STRING(hex_param)) {
@@ -612,7 +616,7 @@ int blockchain_transaction_broadcast(MempoolCache *mc_ptr, BitcoinRpcCtx *btc_rp
     return JSONRPC_OK;
 }
 
-int blockchain_transaction_get(MempoolCache *mc_ptr, BitcoinRpcCtx *btc_rpc_ctx, TXDB *dbptr, SyncThreadCtx *sync_thread_ctx, jsonobj *params, jsonobj *response, int client_fd)
+int blockchain_transaction_get(MempoolCache *mc_ptr, BitcoinRpcCtx *btc_rpc_ctx, TXDB *dbptr, SyncThreadCtx *sync_thread_ctx, jsonobj *params, jsonobj *response, struct client *client)
 {
     int verbose = 0;
     jsonobj *txid_param = jsonobj_list_get_at(params, 0);
@@ -636,7 +640,7 @@ int blockchain_transaction_get(MempoolCache *mc_ptr, BitcoinRpcCtx *btc_rpc_ctx,
 
 }
 
-int blockchain_transaction_get_merkle(MempoolCache *mc_ptr, BitcoinRpcCtx *btc_rpc_ctx, TXDB *dbptr, SyncThreadCtx *sync_thread_ctx, jsonobj *params, jsonobj *response, int client_fd)
+int blockchain_transaction_get_merkle(MempoolCache *mc_ptr, BitcoinRpcCtx *btc_rpc_ctx, TXDB *dbptr, SyncThreadCtx *sync_thread_ctx, jsonobj *params, jsonobj *response, struct client *client)
 {
     /*
     {
@@ -710,7 +714,7 @@ int blockchain_transaction_get_merkle(MempoolCache *mc_ptr, BitcoinRpcCtx *btc_r
     return JSONRPC_OK;
 }
 
-int blockchain_transaction_id_from_pos(MempoolCache *mc_ptr, BitcoinRpcCtx *btc_rpc_ctx, TXDB *dbptr, SyncThreadCtx *sync_thread_ctx, jsonobj *params, jsonobj *response, int client_fd)
+int blockchain_transaction_id_from_pos(MempoolCache *mc_ptr, BitcoinRpcCtx *btc_rpc_ctx, TXDB *dbptr, SyncThreadCtx *sync_thread_ctx, jsonobj *params, jsonobj *response, struct client *client)
 {
     /*
     When *merkle* is :const:`false`::
@@ -801,7 +805,7 @@ int blockchain_transaction_id_from_pos(MempoolCache *mc_ptr, BitcoinRpcCtx *btc_
     return 0;
 }
 
-int mempool_get_fee_histogram(MempoolCache *mc_ptr, BitcoinRpcCtx *btc_rpc_ctx, TXDB *dbptr, SyncThreadCtx *sync_thread_ctx, jsonobj *params, jsonobj *response, int client_fd)
+int mempool_get_fee_histogram(MempoolCache *mc_ptr, BitcoinRpcCtx *btc_rpc_ctx, TXDB *dbptr, SyncThreadCtx *sync_thread_ctx, jsonobj *params, jsonobj *response, struct client *client)
 {
     response->type = LIST;
 
@@ -821,7 +825,7 @@ int mempool_get_fee_histogram(MempoolCache *mc_ptr, BitcoinRpcCtx *btc_rpc_ctx, 
 }
 /********************************************************************************************/
 
-int server_ping(MempoolCache *mc_ptr, BitcoinRpcCtx *btc_rpc_ctx, TXDB *dbptr, SyncThreadCtx *sync_thread_ctx, jsonobj *params, jsonobj *response, int client_fd)
+int server_ping(MempoolCache *mc_ptr, BitcoinRpcCtx *btc_rpc_ctx, TXDB *dbptr, SyncThreadCtx *sync_thread_ctx, jsonobj *params, jsonobj *response, struct client *client)
 {
     response->type = JSON_NULL;
 	return 0;
@@ -843,7 +847,7 @@ static int protocol_version_atoi(const char *s)
 }
 
 
-int server_version(MempoolCache *mc_ptr, BitcoinRpcCtx *btc_rpc_ctx, TXDB *dbptr, SyncThreadCtx *sync_thread_ctx, jsonobj *params, jsonobj *response, int client_fd)
+int server_version(MempoolCache *mc_ptr, BitcoinRpcCtx *btc_rpc_ctx, TXDB *dbptr, SyncThreadCtx *sync_thread_ctx, jsonobj *params, jsonobj *response, struct client *client)
 {
     if (JSONOBJ_LIST_SIZE(params) < 2)
         return JSONRPC_INVALID_PARAMS;
@@ -880,7 +884,7 @@ int server_version(MempoolCache *mc_ptr, BitcoinRpcCtx *btc_rpc_ctx, TXDB *dbptr
     return JSONRPC_OK;
 }
 
-int server_features(MempoolCache *mc_ptr, BitcoinRpcCtx *btc_rpc_ctx, TXDB *dbptr, SyncThreadCtx *sync_thread_ctx, jsonobj *params, jsonobj *response, int client_fd)
+int server_features(MempoolCache *mc_ptr, BitcoinRpcCtx *btc_rpc_ctx, TXDB *dbptr, SyncThreadCtx *sync_thread_ctx, jsonobj *params, jsonobj *response, struct client *client)
 {
     /*
     {
@@ -908,7 +912,7 @@ int server_features(MempoolCache *mc_ptr, BitcoinRpcCtx *btc_rpc_ctx, TXDB *dbpt
     return JSONRPC_OK;
 }
 
-int server_banner(MempoolCache *mc_ptr, BitcoinRpcCtx *btc_rpc_ctx, TXDB *dbptr, SyncThreadCtx *sync_thread_ctx, jsonobj *params, jsonobj *response, int client_fd)
+int server_banner(MempoolCache *mc_ptr, BitcoinRpcCtx *btc_rpc_ctx, TXDB *dbptr, SyncThreadCtx *sync_thread_ctx, jsonobj *params, jsonobj *response, struct client *client)
 {
     /*
     result
@@ -918,7 +922,7 @@ int server_banner(MempoolCache *mc_ptr, BitcoinRpcCtx *btc_rpc_ctx, TXDB *dbptr,
     return 0;
 }
 
-int server_donation_address(MempoolCache *mc_ptr, BitcoinRpcCtx *btc_rpc_ctx, TXDB *dbptr, SyncThreadCtx *sync_thread_ctx, jsonobj *params, jsonobj *response, int client_fd)
+int server_donation_address(MempoolCache *mc_ptr, BitcoinRpcCtx *btc_rpc_ctx, TXDB *dbptr, SyncThreadCtx *sync_thread_ctx, jsonobj *params, jsonobj *response, struct client *client)
 {
     /*
     result
@@ -928,7 +932,7 @@ int server_donation_address(MempoolCache *mc_ptr, BitcoinRpcCtx *btc_rpc_ctx, TX
     return 0;
 }
 
-int server_peers_subscribe(MempoolCache *mc_ptr, BitcoinRpcCtx *btc_rpc_ctx, TXDB *dbptr, SyncThreadCtx *sync_thread_ctx, jsonobj *params, jsonobj *response, int client_fd)
+int server_peers_subscribe(MempoolCache *mc_ptr, BitcoinRpcCtx *btc_rpc_ctx, TXDB *dbptr, SyncThreadCtx *sync_thread_ctx, jsonobj *params, jsonobj *response, struct client *client)
 {
     response->type = LIST;
 
@@ -973,11 +977,12 @@ int electrum_rpc_height_notify(TXDB *dbptr, uint32_t height)
     payload_str[payload_sz++] = '\n';
     jsonobj_free(payload);
 
-    int i;
+    size_t i;
+    struct client *client = NULL;
     for (i = 0; i < MAX_CLIENTS; i++) {
-        int fd = subscriptions[i].client_fd;
-        if (fd > -1 && subscriptions[i].subscr_mode & SUBSRIPTION_MODE_HEADERS)
-            send(fd, payload_str, payload_sz, 0);
+        client = &clients[i];
+        if (client->client_fd > -1 && client->subscr.subscr_mode & SUBSRIPTION_MODE_HEADERS)
+            SOCKET_WRITE(client, payload_str, payload_sz);
     }
 
     free(payload_str);
@@ -987,20 +992,22 @@ int electrum_rpc_height_notify(TXDB *dbptr, uint32_t height)
 
 int electrum_rpc_new_scripthashes_notify(TXDB *dbptr, MempoolCache *mc_ptr, const HashesVec *new_scripthashes)
 {
-    size_t i, j, payload_sz;
+    ssize_t i;
+    size_t j, payload_sz;
 
     char *payload_str;
     uint8_t status_hash[32];
     char hashstr[65];
+    struct client *client = NULL;
     for (i = 0; i < new_scripthashes->size; i++) {
         payload_str = NULL;
         payload_sz = 0;
 
         for (j = 0; j < MAX_CLIENTS; j++) {
-            int fd = subscriptions[j].client_fd;
-            if (fd > -1 &&
-                (subscriptions[j].subscr_mode & SUBSRIPTION_MODE_SCRIPTHASH)
-                && hashes_vec_find(&subscriptions[j].scriphashes, new_scripthashes->v[i]) != -1) {
+            client = &clients[j];
+            if (client->client_fd > -1 &&
+                (client->subscr.subscr_mode & SUBSRIPTION_MODE_SCRIPTHASH)
+                && hashes_vec_find(&client->subscr.scriphashes, new_scripthashes->v[i]) != -1) {
 
                 if (!payload_str && !scripthash_status(dbptr, mc_ptr, status_hash, new_scripthashes->v[i])) {
                     jsonobj *payload = jsonobj_put_jsonobj(NULL, "", NULL);
@@ -1022,7 +1029,7 @@ int electrum_rpc_new_scripthashes_notify(TXDB *dbptr, MempoolCache *mc_ptr, cons
                     jsonobj_free(payload);
                 }
 
-                send(fd, payload_str, payload_sz, 0);
+                SOCKET_WRITE(client, payload_str, payload_sz);
             }
 
         }
@@ -1042,7 +1049,7 @@ int electrum_rpc_new_scripthashes_notify(TXDB *dbptr, MempoolCache *mc_ptr, cons
 
 struct rpc_func_handler {
 	char *method;
-    int (*funptr)(MempoolCache*, BitcoinRpcCtx*, TXDB*, SyncThreadCtx*, jsonobj*, jsonobj*, int);
+    int (*funptr)(MempoolCache*, BitcoinRpcCtx*, TXDB*, SyncThreadCtx*, jsonobj*, jsonobj*, struct client*);
 };
 
 const struct rpc_func_handler rpc_handlers[] = {
@@ -1073,7 +1080,7 @@ const struct rpc_func_handler rpc_handlers[] = {
 
 const int RPC_HANDLERS_SIZE = (sizeof(rpc_handlers) / sizeof(struct rpc_func_handler));
 
-static int handle_request(int client_fd, MempoolCache *mcp, BitcoinRpcCtx *btc_rpc_ctx, TXDB *dbptr, SyncThreadCtx *sync_thread_ctx)
+static int handle_request(struct client *client, MempoolCache *mcp, BitcoinRpcCtx *btc_rpc_ctx, TXDB *dbptr, SyncThreadCtx *sync_thread_ctx)
 {
     int nread = 0;
 
@@ -1093,7 +1100,7 @@ static int handle_request(int client_fd, MempoolCache *mcp, BitcoinRpcCtx *btc_r
     char *method = NULL;
     int i;
 
-    while ((nread = read(client_fd, req_buf + req_str_sz, 4096)) > 0) {
+    while ((nread = SOCKET_READ(client, req_buf + req_str_sz, 4096)) > 0) {
         req_str_sz += nread;
         if (nread < 4096) {
             break;
@@ -1147,7 +1154,7 @@ static int handle_request(int client_fd, MempoolCache *mcp, BitcoinRpcCtx *btc_r
         e = jsonobj_lookup(request, "params");
         for (i = 0; i < RPC_HANDLERS_SIZE; i++) {
             if (!strcmp(rpc_handlers[i].method, method)) {
-                rpc_errno = rpc_handlers[i].funptr(mcp, btc_rpc_ctx, dbptr, sync_thread_ctx, e, result, client_fd);
+                rpc_errno = rpc_handlers[i].funptr(mcp, btc_rpc_ctx, dbptr, sync_thread_ctx, e, result, client);
                 if (rpc_errno)
                     goto send_error;
 
@@ -1178,7 +1185,7 @@ send_response:
         resp_str_sz = strlen(resp_str);
         resp_str[resp_str_sz++] = '\n';
 
-        if (write(client_fd, resp_str, resp_str_sz) < 0) {
+        if (SOCKET_WRITE(client, resp_str, resp_str_sz) < 0) {
             logerrf("electrum rpc server: socket write fail: %s", strerror(errno));
             rpc_errno = -1;
         }
@@ -1204,19 +1211,35 @@ int electrum_server_init(char *pub_addr, int port, char *donation_addr, char *ba
 
     size_t i;
     for (i = 0; i < MAX_CLIENTS; i++) {
-        struct subscription *s = &subscriptions[i];
-        s->client_fd = -1;
-        s->subscr_mode = 0;
-        hashes_vec_init(&s->scriphashes);
+        client_add(i, -1, NULL);
     }
 
     return 0;
 }
 
-int electrum_server_start(MempoolCache *mcp, BitcoinRpcCtx *btc_rpc_ctx, TXDB *dbptr, SyncThreadCtx *sync_thread_ctx, const char *addr, int port)
+static SSL_CTX *create_ssl_ctx(const char *cert_path, const char *priv_key_path)
+{
+    SSL_CTX *ssl_ctx = SSL_CTX_new(SSLv23_server_method());
+    SSL_CTX_set_options(ssl_ctx, SSL_OP_SINGLE_DH_USE);
+    int use_cert = SSL_CTX_use_certificate_file(ssl_ctx, cert_path, SSL_FILETYPE_PEM);
+
+    int use_prv = SSL_CTX_use_PrivateKey_file(ssl_ctx, priv_key_path, SSL_FILETYPE_PEM);
+
+    return ssl_ctx;
+}
+
+int electrum_server_start(MempoolCache *mcp, BitcoinRpcCtx *btc_rpc_ctx, TXDB *dbptr, SyncThreadCtx *sync_thread_ctx, ElectrumdConfigs *cfg)
 {
     int sockfd, connfd, len;
+    SSL_CTX *ssl_ctx = NULL;
     struct sockaddr_in servaddr, cli;
+
+    const char *addr = cfg->electrumd_rpc_bind;
+    int port = cfg->electrumd_rpc_port;
+
+    // Create SSL context
+    if (cfg->electrumd_rpc_listen_ssl)
+        ssl_ctx = create_ssl_ctx(cfg->electrumd_rpc_ssl_cert_file, cfg->electrumd_rpc_ssl_priv_key_file);
 
     // socket create and verification
     sockfd = socket(AF_INET, SOCK_STREAM, 0);
@@ -1268,14 +1291,22 @@ int electrum_server_start(MempoolCache *mcp, BitcoinRpcCtx *btc_rpc_ctx, TXDB *d
             if (clients_no <= MAX_CLIENTS) {
                 for (i = 1; i < nfds; i++) {
                     if (fds[i].fd == 0) {
-                        fds[i].fd = connfd;
-                        fds[i].events = POLLIN | POLLHUP | POLLPRI;
-                        clients_no++;
+                        if (client_add(i, connfd, ssl_ctx)) {
+                            loginfof("electrum rpc server: connection error %s:%d",
+                                      inet_ntoa(cli.sin_addr),
+                                      ntohs(cli.sin_port)
+                                     );
+                        } else {
+                            fds[i].fd = connfd;
+                            fds[i].events = POLLIN | POLLHUP | POLLPRI;
+                            clients_no++;
 
-                        loginfof("electrum rpc server: new connection: accept %s:%d",
-                                  inet_ntoa(cli.sin_addr),
-                                  ntohs(cli.sin_port)
-                                  );
+                            loginfof("electrum rpc server: new connection: accept %s:%d",
+                                      inet_ntoa(cli.sin_addr),
+                                      ntohs(cli.sin_port)
+                                      );
+                        }
+
                         break;
                     }
                 }
@@ -1289,7 +1320,7 @@ int electrum_server_start(MempoolCache *mcp, BitcoinRpcCtx *btc_rpc_ctx, TXDB *d
             short revents = fds[i].revents;
             if (fds[i].fd > 0 && revents > 0) {
                 if (revents & POLLIN) {
-                    int error = handle_request(fds[i].fd, mcp, btc_rpc_ctx, dbptr, sync_thread_ctx);
+                    int error = handle_request(&clients[i], mcp, btc_rpc_ctx, dbptr, sync_thread_ctx);
                     if (error == -1) {
                         revents = POLLERR;
                     }
@@ -1298,13 +1329,7 @@ int electrum_server_start(MempoolCache *mcp, BitcoinRpcCtx *btc_rpc_ctx, TXDB *d
                 if ((revents & POLLERR) || (revents & POLLHUP)) {
                     //handle connection close
                     loginfof("electrum rpc server: connection removed");
-                    struct subscription *s = subscription_get(fds[i].fd);
-                    if (s) {
-                        s->client_fd = -1;
-                        s->subscr_mode = 0;
-                        hashes_vec_free(&s->scriphashes);
-                        hashes_vec_init(&s->scriphashes);
-                    }
+                    client_remove(i);
 
                     close(fds[i].fd);
                     fds[i].fd = 0;
@@ -1315,6 +1340,9 @@ int electrum_server_start(MempoolCache *mcp, BitcoinRpcCtx *btc_rpc_ctx, TXDB *d
             }
         }
     }
+
+    if (ssl_ctx)
+        SSL_CTX_free(ssl_ctx);
 
     close(sockfd);
     return 0;

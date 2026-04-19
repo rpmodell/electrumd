@@ -40,6 +40,9 @@ typedef struct {
     int bitcoin_p2p_port;
     char *electrumd_rpc_bind;
 	int electrumd_rpc_port;
+	int electrumd_rpc_listen_ssl;
+	char *electrumd_rpc_ssl_cert_file;
+	char *electrumd_rpc_ssl_priv_key_file;
     unsigned int cache_size;
     char *db_dir;
     char *donation_address;
