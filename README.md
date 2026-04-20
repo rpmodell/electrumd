@@ -23,7 +23,6 @@ Electrumd is a small and lightweight Electrum server.
 ### Things not working
 - OpenBSD support coming soon...
 - Peers Add / Subscribe
-- SSL server not yet supported
 
 ### Build and install
 - To build and install electrumd

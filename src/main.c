@@ -227,28 +227,39 @@ int main(int argc, char **argv)
     BtcP2pProtoCtx p2p_ctx;
     p2p_ctx_init(&p2p_ctx, configs.bitcoin_p2p_addr, configs.bitcoin_p2p_port, chain);
 
+    int ret = EXIT_SUCCESS;
     if (prefetch_blocks2(&rpc_ctx, &p2p_ctx, &txdb, NULL)) {
+        ret = EXIT_FAILURE;
         goto shutdown;
     }
 
     if (!electrumd_running) {
-      goto shutdown;
+        goto shutdown;
     }
 
     MempoolCache mcp;
     mempool_cache_init(&mcp);
-    mempool_cache_update(&mcp, &rpc_ctx, NULL);
+    if (mempool_cache_update(&mcp, &rpc_ctx, NULL)) {
+        ret = EXIT_FAILURE;
+        goto shutdown;
+    }
 
     SyncThreadCtx sync_thread_ctx;
 
     electrum_server_init(configs.electrumd_rpc_bind, configs.electrumd_rpc_port, configs.donation_address, configs.banner);
 
-    sync_thread_start(&sync_thread_ctx, &rpc_ctx, &p2p_ctx, &txdb, &mcp);
+    if (sync_thread_start(&sync_thread_ctx, &rpc_ctx, &p2p_ctx, &txdb, &mcp)) {
+        ret = EXIT_FAILURE;
+        goto shutdown;
+    }
 
     if (configs.electrumd_rpc_listen_ssl)
         ssl_init();
 
-    electrum_server_start(&mcp, &rpc_ctx, &txdb, &sync_thread_ctx, &configs);
+    if (electrum_server_start(&mcp, &rpc_ctx, &txdb, &sync_thread_ctx, &configs)) {
+        ret = EXIT_FAILURE;
+        goto shutdown;
+    }
 
     sync_thread_stop(&sync_thread_ctx);
 
@@ -261,4 +272,6 @@ shutdown:
 
     remove(configs.pid_file_path);
     configs_free(&configs);
+
+    return ret;
 }

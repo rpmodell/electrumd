@@ -1221,9 +1221,20 @@ static SSL_CTX *create_ssl_ctx(const char *cert_path, const char *priv_key_path)
 {
     SSL_CTX *ssl_ctx = SSL_CTX_new(SSLv23_server_method());
     SSL_CTX_set_options(ssl_ctx, SSL_OP_SINGLE_DH_USE);
-    int use_cert = SSL_CTX_use_certificate_file(ssl_ctx, cert_path, SSL_FILETYPE_PEM);
+    if (SSL_CTX_use_certificate_file(ssl_ctx, cert_path, SSL_FILETYPE_PEM) != 1) {
+        logerrf("electrum rpc: unable to load ssl certificate file %s", cert_path);
+        return NULL;
+    }
 
-    int use_prv = SSL_CTX_use_PrivateKey_file(ssl_ctx, priv_key_path, SSL_FILETYPE_PEM);
+    if (SSL_CTX_use_PrivateKey_file(ssl_ctx, priv_key_path, SSL_FILETYPE_PEM) != 1) {
+        logerrf("electrum rpc: unable to load ssl private key file %s", priv_key_path);
+        return NULL;
+    }
+
+    if (SSL_CTX_check_private_key(ssl_ctx) != 1) {
+        logerrf("electrum rpc: unable to load ssl certficate and private key mismatch", priv_key_path);
+        return NULL;
+    }
 
     return ssl_ctx;
 }
@@ -1238,8 +1249,10 @@ int electrum_server_start(MempoolCache *mcp, BitcoinRpcCtx *btc_rpc_ctx, TXDB *d
     int port = cfg->electrumd_rpc_port;
 
     // Create SSL context
-    if (cfg->electrumd_rpc_listen_ssl)
-        ssl_ctx = create_ssl_ctx(cfg->electrumd_rpc_ssl_cert_file, cfg->electrumd_rpc_ssl_priv_key_file);
+    if (cfg->electrumd_rpc_listen_ssl) {
+        if ((ssl_ctx = create_ssl_ctx(cfg->electrumd_rpc_ssl_cert_file, cfg->electrumd_rpc_ssl_priv_key_file)) == NULL)
+            return -1;
+    }
 
     // socket create and verification
     sockfd = socket(AF_INET, SOCK_STREAM, 0);

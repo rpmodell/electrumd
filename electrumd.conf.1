@@ -1,4 +1,4 @@
-.TH ELECTRUMD.CONF 5 "August 2025" "electrumd.conf" "Electrumd Configuration File"
+.TH ELECTRUMD.CONF 5 "April 2026" "electrumd.conf" "Electrumd Configuration File"
 .SH NAME
 electrumd.conf \- Configuration file for electrumd
 .SH DESCRIPTION
@@ -20,11 +20,12 @@ Set a custom path for the log file. Default is
 Set a custom path for the PID file. Default is
 .I /var/log/electrumd.pid
 .TP
-.B db_dir=/var/db/electrumd/
+.B db_dir=<db_dir_path>
 Set the directory for the database. This setting is mandatory and does not have a default.
 .TP
-.B cache_size=128M
-Set the maximum RAM cache size for fetched blocks before flushing to disk. Can be specified in bytes, megabytes (M), kilobytes (K), or gigabytes (G). Default is 4096 bytes.
+.B cache_size=<size>
+Set the maximum RAM cache size for fetched blocks before flushing to disk. Can be specified in bytes, 
+megabytes (M), kilobytes (K), or gigabytes (G). Default is 4096 bytes. Default is 192MB
 .TP
 .B bitcoind_rpc_cookie_file=<path>
 Path to the Bitcoin daemon RPC cookie file. Either this or
@@ -56,6 +57,16 @@ Donation address for the electrumd server.
 .TP
 .B banner=<banner>
 Banner message for the electrumd server.
+.TP
+.B electrumd_rpc_ssl=<yes|no>
+Enable or disable SSL/TLS encryption for the RPC interface. When enabled, the electrumd_rpc_ssl_cert_file 
+and electrumd_rpc_ssl_priv_key_file paths must also be specified.
+.TP
+.B electrumd_rpc_ssl_cert_file=<ssl_cert_file>
+The SSL certificate file path. The certificate file must be in unencrypted PEM format
+.TP
+.B electrumd_rpc_ssl_priv_key_file=<private_key_file>
+The SSL private key file path. The private key file must be in unencrypted PEM format
 .SH AUTHOR
 rpmodell (rpmodell@proton.me)
 .SH COPYRIGHT

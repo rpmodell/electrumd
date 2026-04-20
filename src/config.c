@@ -221,16 +221,16 @@ int configs_parse_file(ElectrumdConfigs *configs, const char *fpath)
                 configs->electrumd_rpc_bind = str_clone(value);
             } else if (!strcmp(key, "electrumd_rpc_port")) {
                 configs->electrumd_rpc_port = atoi(value);
-			} else if (!strcmp(key, "electrumd_listen_ssl")) {
+            } else if (!strcmp(key, "electrumd_rpc_ssl")) {
 				if (!strcmp(value, "yes")) 
 					configs->electrumd_rpc_listen_ssl = 1;
 				else if (!strcmp(value, "no"))
 					configs->electrumd_rpc_listen_ssl = 0;
 				else
 					goto parse_fail;
-			} else if (!strcmp(key, "electrumd_ssl_cert_file")) {
+            } else if (!strcmp(key, "electrumd_rpc_ssl_cert_file")) {
 				configs->electrumd_rpc_ssl_cert_file = str_clone(value);
-			} else if (!strcmp(key, "electrumd_ssl_priv_key_file")) {
+            } else if (!strcmp(key, "electrumd_rpc_ssl_priv_key_file")) {
 				configs->electrumd_rpc_ssl_priv_key_file = str_clone(value);
             } else if (!strcmp(key, "cache_size")) {
                 char unit;
