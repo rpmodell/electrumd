@@ -59,17 +59,20 @@ int merkle_branch_and_root(uint8_t *root, HashesVec *branches, HashesVec *hashes
     hashes_vec_add(&hashesv_cpy, NULL);
 
     for (i = 0; i < length; i++) {
-        if (hashesv_cpy_sz % 2)
+        if (hashesv_cpy_sz % 2) {
             hashes_vec_insert(&hashesv_cpy, hashesv_cpy_sz, hashesv_cpy.v[hashesv_cpy_sz-1]);
+			hashesv_cpy_sz++;
+		}
 
         assert((index^1) < hashesv_cpy.size);
         hashes_vec_add(branches, hashesv_cpy.v[index^1]);
         index >>= 1;
 
-        hashesv_cpy_sz /= 2;
         for (j = 0, k = 0; j < hashesv_cpy_sz; j += 2) {
             double_sha256_concat2(hashesv_cpy.v[k++], hashesv_cpy.v[j], 32, hashesv_cpy.v[j+1], 32);
         }
+
+        hashesv_cpy_sz /= 2;
     }
 
     if (root) {

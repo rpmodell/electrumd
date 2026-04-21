@@ -417,7 +417,7 @@ def test_blockchain_scripthash_get_history_3():
     assert result[21]["height"] == 467325
 
 
-def test_blockchain_transaction_get_merkle():
+def test_blockchain_transaction_get_merkle_1():
     assert_electrumd_running()
 
     result = jsonrpc_send_request(
@@ -432,6 +432,35 @@ def test_blockchain_transaction_get_merkle():
     assert result["merkle"] == [
         "f8062887fd60638c71cdb7c06f1576477ba619d763b550708985de86be38eae7",
         "e0ea90c3440c91a8be2b51edaee73ace8edbdfc2d870e3ea32f878e7b61efaf0"
+    ]
+
+
+def test_blockchain_transaction_get_merkle_2():
+    assert_electrumd_running()
+
+    result = jsonrpc_send_request(
+        ELECTRUMD_HOST,
+        ELECTRUMD_PORT,
+        "blockchain.transaction.get_merkle",
+        ["5a7966302e3f1cdc874bce1feb8ca39dcd095090c6d1d4bff06255b7ad8991a9",826127]
+    )
+
+    assert result["block_height"] == 826127
+    assert result["pos"] == 423
+    assert result["merkle"] == [
+        "f396bd58a85c334dde155acc01023af260e613e83768dba1c7683d394a4e3a73",
+        "435a27960e49e06e67d43a392dda72f93f7b7b3bc812cf8ac3b7cf5a2e9b1713",
+        "0915ccfa6df19f7d04aeff9873ae2c49101cd7c13dd10ee24df3359405ea1bbe",
+        "118fa11e715f0f6bb050e16d28852ffb734f6a892f069f541f34298b6b216745",
+        "2060296a13c27f2c1a52ec56684cf356599e123a3c4274d203a2c03ed49ededd",
+        "205bbc770433896a041db7027f534593815df6474311ac0b2456718f10c0b5da",
+        "1c14d9346705ba57c0a5982a16e87b0218176cee1fb2d9ee52c072ff5fed1ebc",
+        "d1db2c86562c70b12e08c95bb41d90414bf970f63da1f69d81c89c8fe2db8745",
+        "01ca9cfa887f5ce0e9246bedad2356ea502fbae19c99e6bb70b93a7b66a46e7e",
+        "111b55d0463c73efbd6e2d902f4210086897bd3ce06c28d577214d8791b7823e",
+        "46d141295a256609df6fbf719447022cd18133a0a89ea25621198fcd57a6340d",
+        "aa96ea98ef1269873821fe2b78599c4a56cd0f70dce35d4a9a2bc411b5ff53e2",
+        "8c4f69acd4fc6174516a172b4f8ab8d662e361b61f423f2de795cbfbd0a4149e"
     ]
 
 
