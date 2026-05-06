@@ -55,14 +55,14 @@ static void signal_handler(int signum)
     electrumd_running = 0;
 }
 
-static void ssl_init()
+static void ssl_init(void)
 {
     SSL_load_error_strings();
     SSL_library_init();
     OpenSSL_add_all_algorithms();
 }
 
-static void ssl_shutdown()
+static void ssl_shutdown(void)
 {
     ERR_free_strings();
     EVP_cleanup();
@@ -110,6 +110,9 @@ int main(int argc, char **argv)
         }
     }
 
+#ifdef __OpenBSD__
+    pledge("stdio rpath wpath cpath flock fattr inet fork", NULL);
+#endif
     int err = configs_parse_file(&configs, confing_path);
     if (err) {
         logerrf("error: parsing configuration failed: %s at line %d", confing_path, err);
@@ -134,6 +137,9 @@ int main(int argc, char **argv)
 
 	
     if (configs.log_file_path) {
+#ifdef __OpenBSD__
+	unveil(configs.log_file_path, "rwc");
+#endif
         if (logging_set_file(configs.log_file_path)) {
             logerrf("electrumd: cannot log to file %s: %s", configs.log_file_path, strerror(errno));
             return EXIT_FAILURE;
@@ -216,6 +222,7 @@ int main(int argc, char **argv)
         }
     }
 
+
     FILE *pid_fp = fopen(configs.pid_file_path, "w");
     if (!pid_fp) {
         logerrf("electrumd: unable to write pid file: %s: %s", configs.pid_file_path, strerror(errno));
@@ -223,6 +230,24 @@ int main(int argc, char **argv)
     }
     fprintf(pid_fp, "%d", getpid());
     fclose(pid_fp);
+
+#ifdef __OpenBSD__
+    unveil(configs.db_dir, "rwcx");
+    unveil(configs.pid_file_path, "rwc");
+    if (configs.electrumd_rpc_listen_ssl) {
+    	unveil(configs.electrumd_rpc_ssl_cert_file, "r");
+    	unveil(configs.electrumd_rpc_ssl_priv_key_file, "r");
+    }
+
+    /*
+     * Restrict file system access only to bare minimum fs locations 
+     * needed for electrumd to work properly
+     */
+    unveil(NULL, NULL);
+
+    // Restrict further fork calls from now on
+    pledge("stdio rpath wpath cpath flock fattr inet", NULL);
+#endif
 
     BtcP2pProtoCtx p2p_ctx;
     p2p_ctx_init(&p2p_ctx, configs.bitcoin_p2p_addr, configs.bitcoin_p2p_port, chain);
