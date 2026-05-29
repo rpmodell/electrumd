@@ -81,7 +81,7 @@
  * 
  * txouts.db
  *   - Key: scripthash_prefix (8 bytes) + height (4 bytes)
- *   - Data: txid_prefix (8 bytes) + value (8 bytes) + tx_index (2 bytes) + tx_pos (2 bytes)
+ *   - Data: value (8 bytes) + tx_index (2 bytes) + tx_pos (2 bytes)
  *     This database maps transaction outputs by a composite key that includes the scripthash prefix.
  *     The data includes the txid prefix, value, height, transaction index, and position, allowing for efficient 
  *     lookup of specific transaction outputs based on the scripthash.
@@ -93,7 +93,6 @@ PACKED_STRUCT utxo_key {
 };
 
 PACKED_STRUCT utxo_dbt {
-	uint8_t txid_prefix[8]; // the txid (easy lookup of the confirmed height (if confirmed))
     int64_t value; // the amount
     uint16_t tx_index; // the index of the tx in which holds this output is in the block
     uint16_t tx_pos; // the output position in the transaction outputs vec
@@ -351,6 +350,7 @@ size_t txdb_lookup_utxos(TXDB *dbptr, const uint8_t *scripthash, Utxo **utxosp, 
         return 0; //notfound
     }
 
+    uint8_t txhash[32];
     size_t ukey_len, udbt_len;
     struct utxo_key *ukey_ptr;
     struct utxo_dbt *udbt_ptr;
@@ -364,9 +364,13 @@ size_t txdb_lookup_utxos(TXDB *dbptr, const uint8_t *scripthash, Utxo **utxosp, 
         udbt_ptr = (struct utxo_dbt*) leveldb_iter_value(iter, &udbt_len);
         assert(udbt_len == sizeof(struct utxo_dbt));
 
+        if ((ret = txdb_lookup_txhash(dbptr, txhash, ukey_ptr->height, udbt_ptr->tx_index))) {
+            break;
+        }
+
         //Is there a better way?
         if (mode & TXDB_UNSPENT) {
-            if (!txdb_get_txin(dbptr, udbt_ptr->txid_prefix, udbt_ptr->tx_pos, NULL)) { // this way we save ~ 14gb of space
+            if (!txdb_get_txin(dbptr, txhash, udbt_ptr->tx_pos, NULL)) { // this way we save ~ 14gb of space
                 continue;
             }
         }
@@ -381,10 +385,7 @@ size_t txdb_lookup_utxos(TXDB *dbptr, const uint8_t *scripthash, Utxo **utxosp, 
         utxo->value = udbt_ptr->value;
         utxo->tx_index = udbt_ptr->tx_index;
         utxo->tx_pos = udbt_ptr->tx_pos;
-
-        if ((ret = txdb_lookup_txhash(dbptr, utxo->txhash, ukey_ptr->height, udbt_ptr->tx_index))) {
-            break;
-        }
+        memcpy(utxo->txhash, txhash, sizeof(txhash));
     }
 
     leveldb_iter_destroy(iter);
@@ -454,7 +455,7 @@ size_t txdb_history(TXDB *dbptr, uint8_t *scripthash, HistoryItem **historyp, si
             If there is an input using this utxo
             Get the height and txHash
         */
-        if (txdb_get_txin(dbptr, udbt_ptr->txid_prefix, udbt_ptr->tx_pos, &in_dbt) == 0) {
+        if (txdb_get_txin(dbptr, hi->txhash, udbt_ptr->tx_pos, &in_dbt) == 0) {
             /*
                 A transaction can have multiple provouts from different blocks, so
                 we need to check if the output transaction is already added to the history
@@ -614,7 +615,6 @@ int txdb_store_txs(TXDB *dbptr, BtcTx *txs, size_t txs_sz, uint32_t height)
             udbt.value = txs[itx].tx_out[i].value;
             udbt.tx_pos = (uint16_t) i;
             udbt.tx_index = (uint16_t) itx;
-            memcpy(udbt.txid_prefix, txs[itx].txid, sizeof(udbt.txid_prefix));
 
             if (txs[itx].tx_out[i].pk_script_len > 0) {
                 if ((ret = db_put(&dbptr->txouts_ptr, &ukey, sizeof(ukey), &udbt, sizeof(udbt)))) {
@@ -713,7 +713,6 @@ int txdb_bulk_store_txs(TXDB *dbptr, BtcTx *txs, size_t txs_sz, uint32_t height)
             udbt.value = txs[itx].tx_out[i].value;
             udbt.tx_pos = (uint16_t) i;
             udbt.tx_index = (uint16_t) itx;
-            memcpy(udbt.txid_prefix, txs[itx].txid, sizeof(udbt.txid_prefix));
 
             if (txs[itx].tx_out[i].pk_script_len > 0)
                 leveldb_writebatch_put(utxo_batch, (char*) &ukey, sizeof(ukey), (char*) &udbt, sizeof(udbt));
