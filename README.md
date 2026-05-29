@@ -23,7 +23,6 @@ Electrumd is a small and lightweight Electrum server.
 - Use a debug log level and attach the debug file
 
 ### Things not working
-- OpenBSD security enhancements
 - Peering suport (Add / Subscribe)
 
 ### Build and install
