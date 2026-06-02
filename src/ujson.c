@@ -174,7 +174,6 @@ static void list_add(jsonobj *parent, jsonobj *e)
 
 static int parse_buff(jsonobj *element, char **buf)
 {
-    char *key = NULL;
     jsonobj *e = NULL;
     if (skip_spaces(buf)) {
         return -1;
@@ -189,8 +188,10 @@ static int parse_buff(jsonobj *element, char **buf)
 
 		while ((**buf) != '}') {
 			skip_spaces(buf);
-            key = parse_quoted_str(buf);
-            if (!key)
+
+	    	e = jsonobj_new();
+            e->key = parse_quoted_str(buf);
+            if (!e->key)
                 goto parsing_fail;
 
             if (skip_spaces(buf))
@@ -201,7 +202,6 @@ static int parse_buff(jsonobj *element, char **buf)
 
 			(*buf)++;
 			
-			e = jsonobj_new();
             if (parse_buff(e, buf))
                 goto parsing_fail;
 			
@@ -213,7 +213,6 @@ static int parse_buff(jsonobj *element, char **buf)
 			else if ((**buf) != '}')
                 goto parsing_fail;
 
-			e->key = key;
 			put(element, e);
 		}
 
@@ -299,8 +298,6 @@ static int parse_buff(jsonobj *element, char **buf)
 	}
     }
 parsing_fail:
-    if (key)
-        free(key);
     jsonobj_free(e);
     return -1;
 }
