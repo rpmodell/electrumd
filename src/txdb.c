@@ -310,6 +310,7 @@ static leveldb_iterator_t *create_iterator_at(struct dbi *db, const void *key, s
     leveldb_iterator_t *iter = leveldb_create_iterator(db->db, db->ropts);
     leveldb_iter_seek(iter, (char*) key, key_sz);
     leveldb_iter_get_error(iter, &err);
+
     if (err) {
         logdebugf("txdb create iter error: %s", err);
         leveldb_free(err);
@@ -350,27 +351,30 @@ size_t txdb_lookup_utxos(TXDB *dbptr, const uint8_t *scripthash, Utxo **utxosp, 
         return 0; //notfound
     }
 
+	char *data = NULL;
     uint8_t txhash[32];
-    size_t ukey_len, udbt_len;
-    struct utxo_key *ukey_ptr;
-    struct utxo_dbt *udbt_ptr;
+    size_t data_len;
+    struct utxo_key ukey;
+    struct utxo_dbt udbt;
     for (leveldb_iter_next(iter); leveldb_iter_valid(iter); leveldb_iter_next(iter)) {
-        ukey_ptr = (struct utxo_key*) leveldb_iter_key(iter, &ukey_len);
-        assert(ukey_len == sizeof(struct utxo_key));
+        data = (char*) leveldb_iter_key(iter, &data_len);
+        assert(data_len == sizeof(ukey));
 
-        if (memcmp(ukey_ptr->scripthash_prefix, scripthash, 8))
+		memcpy(&ukey, data, sizeof(ukey));
+        if (memcmp(ukey.scripthash_prefix, scripthash, 8))
             break;
 
-        udbt_ptr = (struct utxo_dbt*) leveldb_iter_value(iter, &udbt_len);
-        assert(udbt_len == sizeof(struct utxo_dbt));
+        data = (char*) leveldb_iter_value(iter, &data_len);
+        assert(data_len == sizeof(udbt));
 
-        if ((ret = txdb_lookup_txhash(dbptr, txhash, ukey_ptr->height, udbt_ptr->tx_index))) {
+		memcpy(&udbt, data, sizeof(udbt));
+        if ((ret = txdb_lookup_txhash(dbptr, txhash, ukey.height, udbt.tx_index))) {
             break;
         }
 
         //Is there a better way?
         if (mode & TXDB_UNSPENT) {
-            if (!txdb_get_txin(dbptr, txhash, udbt_ptr->tx_pos, NULL)) { // this way we save ~ 14gb of space
+            if (!txdb_get_txin(dbptr, txhash, udbt.tx_pos, NULL)) { // this way we save ~ 14gb of space
                 continue;
             }
         }
@@ -381,10 +385,10 @@ size_t txdb_lookup_utxos(TXDB *dbptr, const uint8_t *scripthash, Utxo **utxosp, 
         }
 
         Utxo *utxo = *utxosp + utxo_sz++;
-        utxo->height = ukey_ptr->height;
-        utxo->value = udbt_ptr->value;
-        utxo->tx_index = udbt_ptr->tx_index;
-        utxo->tx_pos = udbt_ptr->tx_pos;
+        utxo->height = ukey.height;
+        utxo->value = udbt.value;
+        utxo->tx_index = udbt.tx_index;
+        utxo->tx_pos = udbt.tx_pos;
         memcpy(utxo->txhash, txhash, sizeof(txhash));
     }
 
@@ -425,29 +429,32 @@ size_t txdb_history(TXDB *dbptr, uint8_t *scripthash, HistoryItem **historyp, si
         return 0; //notfound
     }
 
-    size_t ukey_len, udbt_len, i;
+	char *data = NULL;
+    size_t data_len, i;
     struct txin_dbt in_dbt;
-    struct utxo_key *ukey_ptr;
-    struct utxo_dbt *udbt_ptr;
+    struct utxo_key ukey;
+    struct utxo_dbt udbt;
     for (leveldb_iter_next(iter); leveldb_iter_valid(iter) && hist_sz < limit; leveldb_iter_next(iter)) {
-        ukey_ptr = (struct utxo_key*) leveldb_iter_key(iter, &ukey_len);
-        assert(ukey_len == sizeof(struct utxo_key));
+        data = (char*) leveldb_iter_key(iter, &data_len);
+        assert(data_len == sizeof(ukey));
 
-        if (memcmp(ukey_ptr->scripthash_prefix, scripthash, 8))
+		memcpy(&ukey, data, sizeof(ukey));
+        if (memcmp(ukey.scripthash_prefix, scripthash, 8))
             break;
 
-        udbt_ptr = (struct utxo_dbt*) leveldb_iter_value(iter, &udbt_len);
-        assert(udbt_len == sizeof(struct utxo_dbt));
+        data = (char*) leveldb_iter_value(iter, &data_len);
+        assert(data_len == sizeof(udbt));
 
+		memcpy(&udbt, data, sizeof(udbt));
         if (hist_sz + 2 > hist_capacity) {
             hist_capacity = MAX(hist_capacity, 1) * 2;
             (*historyp) = (HistoryItem*) realloc((*historyp), hist_capacity * sizeof(HistoryItem));
         }
 
         HistoryItem *hi = *historyp + hist_sz++;
-        hi->height = ukey_ptr->height;
-        hi->tx_index = udbt_ptr->tx_index;
-        if ((ret = txdb_lookup_txhash(dbptr, hi->txhash, ukey_ptr->height, udbt_ptr->tx_index))) {
+        hi->height = ukey.height;
+        hi->tx_index = udbt.tx_index;
+        if ((ret = txdb_lookup_txhash(dbptr, hi->txhash, ukey.height, udbt.tx_index))) {
             break;
         }
 
@@ -455,7 +462,7 @@ size_t txdb_history(TXDB *dbptr, uint8_t *scripthash, HistoryItem **historyp, si
             If there is an input using this utxo
             Get the height and txHash
         */
-        if (txdb_get_txin(dbptr, hi->txhash, udbt_ptr->tx_pos, &in_dbt) == 0) {
+        if (txdb_get_txin(dbptr, hi->txhash, udbt.tx_pos, &in_dbt) == 0) {
             /*
                 A transaction can have multiple provouts from different blocks, so
                 we need to check if the output transaction is already added to the history
@@ -518,24 +525,24 @@ int txdb_lookup_txhashes_at_height(TXDB *dbptr, HashesVec *hashes, uint32_t heig
 
     leveldb_iterator_t *iter = create_iterator_at(&dbptr->txhashes_ptr, &thkey, sizeof(thkey));
 
-    size_t key_len, hash_len;
-    struct txhash_key *thkey_ptr;
-    uint8_t *hash_ptr;
+    size_t data_len;
+	char *data = NULL;
     for (; leveldb_iter_valid(iter); leveldb_iter_next(iter)) {
-        thkey_ptr = (struct txhash_key*) leveldb_iter_key(iter, &key_len);
-        assert(key_len == sizeof(struct txhash_key));
+        data = (char*) leveldb_iter_key(iter, &data_len);
+        assert(data_len == sizeof(thkey));
 
-        if (thkey_ptr->height != height)
+		memcpy(&thkey, data, sizeof(thkey));
+        if (thkey.height != height)
             break;
 
-        hash_ptr = (uint8_t*) leveldb_iter_value(iter, &hash_len);
-        assert(hash_len == 32);
+        data = (char*) leveldb_iter_value(iter, &data_len);
+        assert(data_len == 32);
 
         /*
          * the txhash order is enforced by leveldb itself thanks to the lexographical comparator
          * since the indexes are stored in big-endian byte order the hashes are always sorted
          */
-        hashes_vec_add(hashes, hash_ptr);
+        hashes_vec_add(hashes, (uint8_t*) data);
     }
 
     leveldb_iter_destroy(iter);
