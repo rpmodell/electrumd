@@ -28,23 +28,11 @@
  */
 
 #include "ujson.h"
+#include "util.h"
 
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
-
-static char *str_clone(const char *str)
-{
-	if (!str)
-		return NULL;
-    long str_sz = strlen(str);
-    char *clone = (char*) malloc((str_sz + 1) * sizeof(char));
-	if (clone) 
-        strncpy(clone, str, str_sz + 1);
-		
-	return clone;
-	
-}
 
 static int skip_spaces(char **buf)
 {

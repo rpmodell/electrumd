@@ -27,14 +27,14 @@
  * 
  */
 
+#include "util.h"
+
 #include <ctype.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
 #include <openssl/sha.h>
-
-#include "util.h"
 
 const char *jsonrpc_strerror(long code)
 {
@@ -64,10 +64,11 @@ char *str_clone(const char *str)
 {
     if (!str)
         return NULL;
-    long str_sz = strlen(str);
-    char *clone = (char*) malloc((str_sz + 1) * sizeof(char));
+
+    long str_sz = strlen(str) + 1;
+    char *clone = (char*) malloc(str_sz * sizeof(char));
     if (clone)
-        strcpy(clone, str);
+        strncpy(clone, str, str_sz);
 
     return clone;
 }
