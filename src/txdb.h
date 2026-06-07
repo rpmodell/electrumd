@@ -64,6 +64,7 @@ struct dbi {
 	leveldb_options_t *opts;
 	leveldb_readoptions_t *ropts;
     leveldb_writeoptions_t *wopts;
+	leveldb_filterpolicy_t *filtpol;
 };
 
 typedef struct {

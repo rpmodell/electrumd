@@ -107,6 +107,7 @@ int curl_core_rpc_req(BitcoinRpcCtx *ctx, const char *method, jsonobj *args, jso
 	curl_ret = curl_easy_perform(curl);
 		
     //assert(curl_ret == CURLE_OK);
+	curl_slist_free_all(hs);
 	curl_easy_cleanup(curl);
 
 	if (curl_ret != CURLE_OK) {

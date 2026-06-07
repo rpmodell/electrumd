@@ -125,7 +125,9 @@ static int db_init_open(struct dbi *db, const char *db_dir, const char *db_name,
 	if (cache_buf_size > 0)
     	leveldb_options_set_write_buffer_size(db->opts, cache_buf_size);
 
-    leveldb_options_set_filter_policy(db->opts, leveldb_filterpolicy_create_bloom(10));
+	db->filtpol = leveldb_filterpolicy_create_bloom(10);
+
+    leveldb_options_set_filter_policy(db->opts, db->filtpol);
     leveldb_options_set_max_file_size(db->opts, DB_MAX_FILE_SIZE);
     leveldb_options_set_create_if_missing(db->opts, 1);
     db->db = leveldb_open(db->opts, db_path, &err);
@@ -186,6 +188,7 @@ static int db_close(struct dbi *db)
     leveldb_readoptions_destroy(db->ropts);
     leveldb_options_destroy(db->opts);
 	leveldb_close(db->db);
+	leveldb_filterpolicy_destroy(db->filtpol);
     return 0;
 }
 
