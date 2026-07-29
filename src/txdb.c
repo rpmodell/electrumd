@@ -48,7 +48,10 @@
 
 #define HEIGHT_ITER_START 1
 
-#define DB_MAX_FILE_SIZE (4*1024*1024)
+#define DB_MAX_FILE_SIZE (16*1024*1024) //16mb
+#define DB_HASHES_BLK_SIZE (128*1024) //128kb
+#define DB_TXS_BLK_SIZE (8*1024) //8kb
+#define DB_HEADERS_BLK_SIZE (4*1024) //4kb
 
 #define HEADERS_DB_FILE_NAME "headers.db"
 #define TXHASHES_DB_FILE_NAME "txhashes.db"
@@ -106,7 +109,7 @@ PACKED_STRUCT txin_dbt {
     uint16_t tx_index; // the index of the tx in which holds this input is in the block
 };
 
-static int db_init_open(struct dbi *db, const char *db_dir, const char *db_name, ssize_t cache_buf_size)
+static int db_init_open(struct dbi *db, const char *db_dir, const char *db_name, int compr, size_t blksz, ssize_t cache_buf_size)
 {
 	/* Create and initialize LevelDB database */
 	char db_path[1024];
@@ -122,6 +125,8 @@ static int db_init_open(struct dbi *db, const char *db_dir, const char *db_name,
 
     leveldb_options_set_filter_policy(db->opts, db->filtpol);
     leveldb_options_set_max_file_size(db->opts, DB_MAX_FILE_SIZE);
+    leveldb_options_set_compression(db->opts, compr);
+    leveldb_options_set_block_size(db->opts, blksz);
     leveldb_options_set_create_if_missing(db->opts, 1);
     db->db = leveldb_open(db->opts, db_path, &err);
 
@@ -158,17 +163,17 @@ int txdb_open(TXDB *dbptr, const char *db_dir, unsigned int cache_size, long sta
         dbptr->current_height = start_height;
     }
 
-    if (db_init_open(&dbptr->headers_ptr, db_dir, HEADERS_DB_FILE_NAME, 0))
+    if (db_init_open(&dbptr->headers_ptr, db_dir, HEADERS_DB_FILE_NAME, leveldb_no_compression, DB_HEADERS_BLK_SIZE, 0))
         return -1;
 
-    if (db_init_open(&dbptr->txhashes_ptr, db_dir, TXHASHES_DB_FILE_NAME, cache_size / 3))
+    if (db_init_open(&dbptr->txhashes_ptr, db_dir, TXHASHES_DB_FILE_NAME, leveldb_no_compression, DB_HASHES_BLK_SIZE, cache_size / 3))
         return -1;
 
 
-    if (db_init_open(&dbptr->txins_ptr, db_dir, TXINS_DB_FILE_NAME, cache_size / 3))
+    if (db_init_open(&dbptr->txins_ptr, db_dir, TXINS_DB_FILE_NAME, leveldb_snappy_compression, DB_TXS_BLK_SIZE, cache_size / 3))
         return -1;
 	
-    if (db_init_open(&dbptr->txouts_ptr, db_dir, TXOUTS_DB_FILE_NAME, cache_size / 3))
+    if (db_init_open(&dbptr->txouts_ptr, db_dir, TXOUTS_DB_FILE_NAME, leveldb_snappy_compression, DB_TXS_BLK_SIZE, cache_size / 3))
 		return -1;
 
     strcpy(dbptr->db_dir, db_dir);

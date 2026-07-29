@@ -52,5 +52,27 @@ as a daemon with default configuration:
 .ft B
 electrumd -d
 .ft
+.SH TUNING
+On ZFS file systems, the leveldb database may experiance a write stall if not correctly configured, tehrefore it is reccomended to create a separate zfs dataset:
+.TP
+zfs create <poolname>/electrumd
+creates the new separate dataset
+
+Once the dataset is created the following configurations are reccomended
+
+.TP
+zfs set atime=off <poolname>/electrumd
+Turning	this property off avoids producing write traffic  when reading files and can result in significant performance gains.
+.TP
+zfs set recordsize=128K <poolname>/electrumd
+Matches the zfs dataset recordsize value with the 
+.I electrumd
+db blocksize
+.TP
+zfs set sync=disabled <poolname>/electrumd
+File system transactions are only committed to stable storage periodically
+
+.SH AUTHOR
+rpmodell (rpmodell@proton.me)
 .SH SEE ALSO
 .IR electrumd.conf (5)
