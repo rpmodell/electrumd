@@ -199,16 +199,6 @@ int main(int argc, char **argv)
         return EXIT_FAILURE;
     }
 
-    // fork process for daemon option here
-    sa.sa_handler = signal_handler;
-    sigemptyset(&sa.sa_mask);
-    sa.sa_flags = SA_RESTART;
-    if (sigaction(SIGINT, &sa, NULL) == -1)
-        return EXIT_FAILURE;
-
-    /* Start Sync process*/
-    electrumd_running = 1;
-
     /* For if daemon is set */
     if (daemon) {
         switch (fork()) {
@@ -216,11 +206,41 @@ int main(int argc, char **argv)
             logerrf("electrumd: fork failed: %s", strerror(errno));
             return EXIT_FAILURE;
         case 0:
+            if (setsid() < 0) {
+                logerrf("electrumd: fork failed: %s", strerror(errno));
+                return EXIT_FAILURE;
+            }
+
+            switch (fork()) {
+            case -1:
+                logerrf("electrumd: fork failed: %s", strerror(errno));
+                return EXIT_FAILURE;
+                break;
+            case 0:
+                break;
+            default:
+                return EXIT_SUCCESS;
+            }
             break;
         default:
 			return EXIT_SUCCESS;
         }
     }
+
+    sa.sa_handler = signal_handler;
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = SA_RESTART;
+    if (sigaction(SIGINT, &sa, NULL) == -1)
+        return EXIT_FAILURE;
+
+    sa.sa_handler = SIG_IGN;
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = 0;
+    if (sigaction(SIGPIPE, &sa, NULL) == -1)
+        return EXIT_FAILURE;
+
+    /* Start Sync process*/
+    electrumd_running = 1;
 
 
     FILE *pid_fp = fopen(configs.pid_file_path, "w");

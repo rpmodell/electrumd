@@ -43,6 +43,7 @@ pytest tests/test_wallet_integration.py
 ```
 
 ### Additional notes
+- Requires txindex
 - For now at least, electrumd must be intended to be used in a small scale home or friends environment it is not meant for a enterprise service level
 - Currencies different from BTC are not supported for now
 

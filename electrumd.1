@@ -52,6 +52,11 @@ as a daemon with default configuration:
 .ft B
 electrumd -d
 .ft
+.SH NOTES
+Requires
+.B txindex
+enabled.
+
 .SH TUNING
 On ZFS file systems, the leveldb database may experiance a write stall if not correctly configured, tehrefore it is reccomended to create a separate zfs dataset:
 .TP
