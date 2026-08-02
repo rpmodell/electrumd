@@ -179,6 +179,27 @@ sync_round_end:
     return 0;
 }
 
+static int wait_reconnect(BtcP2pProtoCtx *ctx, uint32_t height, int attempts)
+{
+	int t = 5;
+	while (attempts--) {
+		if (ctx->sock_fd > -1)
+			close(ctx->sock_fd);
+
+		sleep(t);
+		if (p2p_connect(ctx, height)) {
+			logerrf("block sync: p2p error: cannot connect with bitcoin daemoni, retry in %d seconds", t);
+			continue;
+             	}
+		if (p2p_ping(ctx) == 0)
+			return 0;
+
+		t *= 2;
+	}
+
+	return -1;
+}
+
 /*
  * Constructs the block locator vector hashes.
  * To create the block locator hashes, keep pushing hashes until you go back to the genesis block.
@@ -403,9 +424,7 @@ sync_round_end:
                 and, if the daemon not reply, we close the connection, wait 5s and reconnect.
              */
              logerrf("block sync: p2p error: wait 5 sec and reconnect");
-             close(p2p_ctx->sock_fd);
-             sleep(5);
-             if ((ret = p2p_connect(p2p_ctx, dbptr->current_height))) {
+             if ((ret = wait_reconnect(p2p_ctx, dbptr->current_height, 5))) {
                  logerrf("block sync: p2p error: cannot connect with bitcoin daemon");
                  return ret;
              }
