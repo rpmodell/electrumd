@@ -69,7 +69,7 @@ Once the dataset is created the following configurations are reccomended
 zfs set atime=off <poolname>/electrumd
 Turning	this property off avoids producing write traffic  when reading files and can result in significant performance gains.
 .TP
-zfs set recordsize=128K <poolname>/electrumd
+zfs set recordsize=8K <poolname>/electrumd
 Matches the zfs dataset recordsize value with the 
 .I electrumd
 db blocksize

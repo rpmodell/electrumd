@@ -49,9 +49,8 @@
 #define HEIGHT_ITER_START 1
 
 #define DB_MAX_FILE_SIZE (16*1024*1024) //16mb
-#define DB_HASHES_BLK_SIZE (128*1024) //128kb
 #define DB_TXS_BLK_SIZE (8*1024) //8kb
-#define DB_HEADERS_BLK_SIZE (4*1024) //4kb
+#define DB_DEFAULT_BLK_SIZE (4*1024) //4kb
 
 #define HEADERS_DB_FILE_NAME "headers.db"
 #define TXHASHES_DB_FILE_NAME "txhashes.db"
@@ -69,9 +68,11 @@
  *     Each entry contains the full block header data, allowing quick access to block information by its height.
  * 
  * txhashes.db
- *   - Key: height (4 bytes) 
- *   - Data: txid (tx_count * 32 bytes)
- *     This database maps a transaction's height to its transaction IDs (txid).
+ *   - Key: height (4 bytes) + tx_index (2 bytes, big endian)
+ *   - Data: txid (32 bytes)
+ *     This database maps a transaction's height and index to its transaction ID (txid).
+ *     The key is a combination of the block height and the transaction index within that block, 
+ *     facilitating the lookup of a txid based on its position in the blockchain.
  * 
  * txins.db
  *   - Key: prevout_hash_prefix (8 bytes) + prev_out_index (2 bytes)
@@ -107,6 +108,11 @@ PACKED_STRUCT txin_key {
 PACKED_STRUCT txin_dbt {
     uint32_t height; //<<--- height at which vin is located used to fetch txhash from db easily
     uint16_t tx_index; // the index of the tx in which holds this input is in the block
+};
+
+PACKED_STRUCT txhash_key {
+	uint32_t height; // block height in which tx is stored
+	uint16_t tx_index; // index of the tx inside the block
 };
 
 static int db_init_open(struct dbi *db, const char *db_dir, const char *db_name, int compr, size_t blksz, ssize_t cache_buf_size)
@@ -163,10 +169,10 @@ int txdb_open(TXDB *dbptr, const char *db_dir, unsigned int cache_size, long sta
         dbptr->current_height = start_height;
     }
 
-    if (db_init_open(&dbptr->headers_ptr, db_dir, HEADERS_DB_FILE_NAME, leveldb_no_compression, DB_HEADERS_BLK_SIZE, 0))
+    if (db_init_open(&dbptr->headers_ptr, db_dir, HEADERS_DB_FILE_NAME, leveldb_no_compression, DB_DEFAULT_BLK_SIZE, 0))
         return -1;
 
-    if (db_init_open(&dbptr->txhashes_ptr, db_dir, TXHASHES_DB_FILE_NAME, leveldb_no_compression, DB_HASHES_BLK_SIZE, cache_size / 3))
+    if (db_init_open(&dbptr->txhashes_ptr, db_dir, TXHASHES_DB_FILE_NAME, leveldb_no_compression, DB_DEFAULT_BLK_SIZE, cache_size / 3))
         return -1;
 
 
@@ -508,60 +514,45 @@ int txdb_lookup_txhash(TXDB *dbptr, uint8_t *tx_hash, uint32_t height, uint16_t 
 	if (height > dbptr->current_height)
 		return -1;
 	
-	char *err = NULL;
-	size_t read_sz = 0;
-	char *read_ptr = leveldb_get(dbptr->txhashes_ptr.db, dbptr->txhashes_ptr.ropts, (char*) &height, sizeof(height), &read_sz, &err);
+    struct txhash_key thkey;
+    thkey.height = height;
+    thkey.tx_index = htobe16(tx_index);
 
-    if (err) {
-		logerrf("db get error %s", err);
-		leveldb_free(err); 
-		return -1;
-    }
-    
-    if (!read_ptr)
-		return -1; // key not found
-
-	if ((tx_index + 1) * 32 > read_sz) {
-		logerrf("txdb lookup txhash index exceeded record size");
-		leveldb_free(read_ptr);
-		return -1;
-	}
-
-	memcpy(tx_hash, read_ptr + (tx_index * 32), 32);
-	leveldb_free(read_ptr);
-    return 0;
+    return db_get(&dbptr->txhashes_ptr, &thkey, sizeof(thkey), tx_hash, 32);
 }
 
 int txdb_lookup_txhashes_at_height(TXDB *dbptr, HashesVec *hashes, uint32_t height)
 {
 	if (height > dbptr->current_height)
 		return -1;
-	
-	char *err = NULL;
-	size_t i, read_sz = 0;
-	char *read_ptr = leveldb_get(dbptr->txhashes_ptr.db, dbptr->txhashes_ptr.ropts, (char*) &height, sizeof(height), &read_sz, &err);
 
-    if (err) {
-		logerrf("db get error %s", err);
-		leveldb_free(err); 
-		return -1;
+	struct txhash_key thkey;
+	thkey.height = height;
+    thkey.tx_index = 0;
+
+    leveldb_iterator_t *iter = create_iterator_at(&dbptr->txhashes_ptr, &thkey, sizeof(thkey));
+
+    size_t data_len;
+	char *data = NULL;
+    for (; leveldb_iter_valid(iter); leveldb_iter_next(iter)) {
+        data = (char*) leveldb_iter_key(iter, &data_len);
+        assert(data_len == sizeof(thkey));
+
+		memcpy(&thkey, data, sizeof(thkey));
+        if (thkey.height != height)
+            break;
+
+        data = (char*) leveldb_iter_value(iter, &data_len);
+        assert(data_len == 32);
+
+        /*
+         * the txhash order is enforced by leveldb itself thanks to the lexographical comparator
+         * since the indexes are stored in big-endian byte order the hashes are always sorted
+         */
+        hashes_vec_add(hashes, (uint8_t*) data);
     }
-    
-    if (!read_ptr)
-		return -1; // key not found
 
-	for (i = 0; i < read_sz; i += 32) {
-		if (i + 32 > read_sz) {
-			logerrf("txdb lookup txhash index exceeded record size");
-			leveldb_free(read_ptr);
-			hashes_vec_free(hashes);
-			return -1;
-		}
-
-		hashes_vec_add(hashes, (uint8_t*) read_ptr + i);
-	}
-
-	leveldb_free(read_ptr);
+    leveldb_iter_destroy(iter);
 	
 	// not found tx at index 0 this means that this height does not exists! NOTE this should never happen!
     if (hashes->size == 0)
@@ -648,18 +639,16 @@ int txdb_store_txs(TXDB *dbptr, BtcTx *txs, size_t txs_sz, uint32_t height)
         }
 	}
 
-	size_t txh_record_sz = txs_sz * 32;
-	uint8_t *txh_record = (uint8_t*) malloc(txh_record_sz * sizeof(uint8_t));
-    for (itx = 0; itx < txs_sz; itx++)
-		memcpy(txh_record + itx * 32, txs[itx].txid, 32);
-
-	if (db_put(&dbptr->txhashes_ptr, &height, sizeof(height), txh_record, txh_record_sz)) {
-		free(txh_record);
-        logerrf("txdb: error storing txhashes");
-		return -1;
+    struct txhash_key thkey;
+    thkey.height = height;
+    for (itx = 0; itx < txs_sz; itx++) {
+        // tx index is stored in big endian byte order this enforces key ordering
+        thkey.tx_index = htobe16((uint16_t) itx);
+        if ((ret = db_put(&dbptr->txhashes_ptr, &thkey, sizeof(thkey), txs[itx].txid, 32))) {
+			return ret;
+		}
 	}
-
-	free(txh_record);
+	
     return ret;
 }
 
@@ -698,6 +687,7 @@ int txdb_bulk_store_txs(TXDB *dbptr, BtcTx *txs, size_t txs_sz, uint32_t height)
 
     leveldb_writebatch_t* utxo_batch = leveldb_writebatch_create();
     leveldb_writebatch_t* txin_batch = leveldb_writebatch_create();
+    leveldb_writebatch_t* hash_batch = leveldb_writebatch_create();
     for (itx = 0; itx < txs_sz; itx++) {
         assert(itx < USHRT_MAX);
 
@@ -743,20 +733,15 @@ int txdb_bulk_store_txs(TXDB *dbptr, BtcTx *txs, size_t txs_sz, uint32_t height)
         }
     }
 
+    struct txhash_key thkey;
+    thkey.height = height;
 
-	size_t txh_record_sz = txs_sz * 32;
-	uint8_t *txh_record = (uint8_t*) malloc(txh_record_sz * sizeof(uint8_t));
-    for (itx = 0; itx < txs_sz; itx++)
-		memcpy(txh_record + itx * 32, txs[itx].txid, 32);
+    for (itx = 0; itx < txs_sz; itx++) {
+        // tx index is stored in big endian byte order this enforces key ordering
+        thkey.tx_index = htobe16((uint16_t) itx);
+        leveldb_writebatch_put(hash_batch, (char*) &thkey, sizeof(thkey), (char*) txs[itx].txid, 32);
+    }
 
-	if (db_put(&dbptr->txhashes_ptr, &height, sizeof(height), txh_record, txh_record_sz)) {
-		free(txh_record);
-        logerrf("txdb: error storing txhashes");
-		return -1;
-	}
-
-	free(txh_record);
-	
 	pthread_t txin_write_thread;
 	struct write_thread_args txin_wta = {.dbi=&dbptr->txins_ptr, .batch=txin_batch, .error=0};
 	pthread_create(&txin_write_thread, NULL, &db_batch_put, &txin_wta);
@@ -765,11 +750,17 @@ int txdb_bulk_store_txs(TXDB *dbptr, BtcTx *txs, size_t txs_sz, uint32_t height)
 	struct write_thread_args utxo_wta = {.dbi=&dbptr->txouts_ptr, .batch=utxo_batch, .error=0};
 	pthread_create(&utxo_write_thread, NULL, &db_batch_put, &utxo_wta);
 
+	pthread_t hash_write_thread;
+	struct write_thread_args hash_wta = {.dbi=&dbptr->txhashes_ptr, .batch=hash_batch, .error=0};
+	pthread_create(&hash_write_thread, NULL, &db_batch_put, &hash_wta);
+
 	pthread_join(txin_write_thread, NULL);
 	pthread_join(utxo_write_thread, NULL);
+	pthread_join(hash_write_thread, NULL);
 
     leveldb_writebatch_destroy(utxo_batch);
     leveldb_writebatch_destroy(txin_batch);
+    leveldb_writebatch_destroy(hash_batch);
 
 	if (txin_wta.error) {
         logerrf("txdb: error storing txins");
@@ -778,6 +769,11 @@ int txdb_bulk_store_txs(TXDB *dbptr, BtcTx *txs, size_t txs_sz, uint32_t height)
 
 	if (utxo_wta.error) {
         logerrf("txdb: error storing txouts");
+		return -1;
+	}
+
+	if (hash_wta.error) {
+        logerrf("txdb: error storing txhashes");
 		return -1;
 	}
 
