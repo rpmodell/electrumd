@@ -40,6 +40,7 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/param.h>
+#include <unistd.h>
 
 #include "logging.h"
 
@@ -50,12 +51,14 @@
 #define DB_MAX_FILE_SIZE (16*1024*1024) //16mb
 #define DB_TXS_BLK_SIZE (8*1024) //8kb
 #define DB_DEFAULT_BLK_SIZE (4*1024) //4kb
+#define HASHES_INDEX_SEEK(H) (H * sizeof(struct tx_offset))
 
 #define HEADERS_DB_FILE_NAME "headers.db"
 #define TXHASHES_DB_FILE_NAME "txhashes.db"
 #define TXINS_DB_FILE_NAME "txins.db"
 #define TXOUTS_DB_FILE_NAME "txouts.db"
 #define STATUS_FILE_NAME "status" //rename to dbstat
+
 
 /*
  * Electrumd Database (TXDB) Structure Description
@@ -109,10 +112,12 @@ PACKED_STRUCT txin_dbt {
     uint16_t tx_index; // the index of the tx in which holds this input is in the block
 };
 
-PACKED_STRUCT txhash_key {
-	uint32_t height; // block height in which tx is stored
-	uint16_t tx_index; // index of the tx inside the block
+PACKED_STRUCT tx_offset {
+    uint64_t offset; //<<--- height at which vin is located used to fetch txhash from db easily
+    uint16_t tx_count; // the index of the tx in which holds this input is in the block
 };
+
+
 
 static int db_init_open(struct dbi *db, const char *db_dir, const char *db_name, int compr, size_t blksz, ssize_t cache_buf_size)
 {
@@ -149,6 +154,59 @@ static int db_init_open(struct dbi *db, const char *db_dir, const char *db_name,
 	return 0;
 }
 
+/* For now filedb its used only for txhashes */
+static int hashesdb_open(TXDB *db, const char *db_dir, const char *db_name, size_t cache_mem)
+{
+	char db_path[1024];
+
+	db->hashesdb.cache_sz = 0;
+	db->hashesdb.cache_capacity = 0;
+	db->hashesdb.cache = NULL;
+	db->hashesdb.cache_max = cache_mem / sizeof(*db->hashesdb.cache);
+
+	sprintf(db_path, "%s/%s", db_dir, db_name);
+	
+	// is the dir present?
+	if (mkdir(db_path, 0744) && errno != EEXIST) {
+		logerrf("txdb failed opening %s: %s", db_path, strerror(errno));
+		return -1;
+	}
+
+
+	sprintf(db_path, "%s/%s/index", db_dir, db_name);
+	if ((db->hashesdb.index_fp = fopen(db_path, "w+b")) == NULL) {
+        logerrf("txdb open %s fail: %s (index)", db_name, strerror(errno));
+		return -2;
+	}
+
+	sprintf(db_path, "%s/%s/data", db_dir, db_name);
+	if ((db->hashesdb.data_fp = fopen(db_path, "w+b")) == NULL) {
+        logerrf("txdb open %s fail: %s (data)", db_name, strerror(errno));
+		return -2;
+	}
+	
+	db->hashesdb.offset = 0;
+	if (db->current_height > -1) {
+		struct tx_offset of;
+
+		if (fseeko(db->hashesdb.index_fp, HASHES_INDEX_SEEK(db->current_height), SEEK_SET)) {
+        		logerrf("txdb open %s fail: canno retrieve last index: %s", db_name, strerror(errno));
+			return -1;
+		}
+		if (fread(&of, sizeof(of), 1, db->hashesdb.index_fp) != 1) {
+        		logerrf("txdb open %s fail: canno retrieve last index: %s", db_name, strerror(errno));
+			return -1;
+		}
+		if (fseeko(db->hashesdb.data_fp, of.offset, SEEK_SET)) {
+        		logerrf("txdb open %s fail: cannot seek at last position: %s", db_name, strerror(errno));
+			return -1;
+		}
+		db->hashesdb.offset = of.offset;
+	}
+
+	return 0;
+}
+
 int txdb_open(TXDB *dbptr, const char *db_dir, unsigned int cache_size, long start_height)
 {
     FILE *status_fp = NULL;
@@ -171,7 +229,7 @@ int txdb_open(TXDB *dbptr, const char *db_dir, unsigned int cache_size, long sta
     if (db_init_open(&dbptr->headers_ptr, db_dir, HEADERS_DB_FILE_NAME, leveldb_no_compression, DB_DEFAULT_BLK_SIZE, 0))
         return -1;
 
-    if (db_init_open(&dbptr->txhashes_ptr, db_dir, TXHASHES_DB_FILE_NAME, leveldb_no_compression, DB_DEFAULT_BLK_SIZE, cache_size / 3))
+    if (hashesdb_open(dbptr, db_dir, TXHASHES_DB_FILE_NAME, cache_size / 3))
         return -1;
 
 
@@ -199,14 +257,20 @@ int txdb_close(TXDB *dbptr)
 {
     if (db_close(&dbptr->headers_ptr)) {
         logerrf("txdb error closing %s db", HEADERS_DB_FILE_NAME);
-		return -1;
+	return -1;
     }
 
-    if (db_close(&dbptr->txhashes_ptr)) {
-        logerrf("txdb error closing %s db", TXHASHES_DB_FILE_NAME);
-		return -1;
+    if (fflush(dbptr->hashesdb.index_fp)) {
+        logerrf("txdb error closing %s (index) db", TXHASHES_DB_FILE_NAME);
+	return -1;   
     }
-    
+    fclose(dbptr->hashesdb.index_fp);
+    if (fflush(dbptr->hashesdb.data_fp)) {
+        logerrf("txdb error closing %s (data) db", TXHASHES_DB_FILE_NAME);
+	return -1;   
+    }
+    fclose(dbptr->hashesdb.data_fp);
+
     if (db_close(&dbptr->txins_ptr)) {
         logerrf("txdb error closing %s db", TXINS_DB_FILE_NAME);
 		return -1;
@@ -222,8 +286,19 @@ int txdb_close(TXDB *dbptr)
 
 size_t txdb_flush(TXDB *dbptr)
 {
+
     FILE *status_fp = NULL;
     char db_path[1024];
+
+    if (fflush(dbptr->hashesdb.index_fp)) {
+        logerrf("txdb error closing %s (index) db", TXHASHES_DB_FILE_NAME);
+	return -1;   
+    }
+    if (fflush(dbptr->hashesdb.data_fp)) {
+        logerrf("txdb error closing %s (data) db", TXHASHES_DB_FILE_NAME);
+	return -1;   
+    }
+
     sprintf(db_path, "%s/%s", dbptr->db_dir, STATUS_FILE_NAME);
     status_fp = fopen(db_path, "wb");
     if (!status_fp) {
@@ -245,11 +320,11 @@ static int db_put(struct dbi *db, void *key, size_t key_sz, void *dp, size_t dat
 	char *err = NULL;
 	leveldb_put(db->db, db->wopts, (char*) key, key_sz, (char*) dp, data_sz, &err);
 
-    if (err) {
+    	if (err) {
 		logerrf("db put error %s", err);
 		leveldb_free(err); 
 		return -1;
-    }
+    	}
     
 	return 0;
 }
@@ -261,16 +336,16 @@ int db_get(struct dbi *db, const void *key, size_t key_sz, void *data_ptr, size_
 	char *read_ptr = leveldb_get(db->db, db->ropts, (char*) key, key_sz, &read_sz, &err);
 
 	//FIXME specify errors!
-    if (err) {
+    	if (err) {
 		logerrf("db get error %s", err);
 		leveldb_free(err); 
 		return -1;
-    }
+    	}
     
-    if (!read_ptr)
+    	if (!read_ptr)
 		return -1; // key not found
     
-    if (read_sz != data_sz) {
+    	if (read_sz != data_sz) {
 		leveldb_free(read_ptr); 
 		return -1; // size mismatch
 	}
@@ -279,8 +354,84 @@ int db_get(struct dbi *db, const void *key, size_t key_sz, void *data_ptr, size_
 	if (data_ptr)
 		memcpy(data_ptr, read_ptr, data_sz);
     
-    leveldb_free(read_ptr);
+    	leveldb_free(read_ptr);
+    	return 0;
+}
+
+static int hashesdb_put(TXDB *db, uint32_t height, uint16_t count, uint8_t *data, size_t size)
+{
+    if (ftello(db->hashesdb.index_fp) != HASHES_INDEX_SEEK(height)) {
+        fseeko(db->hashesdb.index_fp, HASHES_INDEX_SEEK(height), SEEK_SET);
+    }
+    if (ftello(db->hashesdb.data_fp) != db->hashesdb.offset) {
+        fseeko(db->hashesdb.data_fp, db->hashesdb.offset, SEEK_SET);
+    }
+
+    // write the new (offset, txcount) pair for that block, block index handle that no need for writing block index
+    struct tx_offset of;
+    of.offset = db->hashesdb.offset;
+    of.tx_count = count;
+    if (fwrite(&of, sizeof(of), 1, db->hashesdb.index_fp) != 1) {
+    	logerrf("txdb write error: hashesdb: %s", strerror(errno));
+	return -1;
+    }
+
+    db->hashesdb.offset += size;
+    if (fwrite(data, 1, size, db->hashesdb.data_fp) != size) {
+    	logerrf("txdb write error: hashesdb: %s", strerror(errno));
+	return -1;
+    }
     return 0;
+}
+
+static int hashesdb_cache_get(TXDB *dbptr, uint32_t height, uint16_t tx_index, uint8_t *hash)
+{
+	size_t i;
+	if (!dbptr->hashesdb.cache)
+		return -1;
+
+	for (i = 0; i < dbptr->hashesdb.cache_sz; i++) {
+		if (dbptr->hashesdb.cache[i].height == height && dbptr->hashesdb.cache[i].tx_index == tx_index) {
+			if (hash)
+				memcpy(hash, dbptr->hashesdb.cache[i].hash, 32);
+
+			// Increase the seen count
+			dbptr->hashesdb.cache[i].seen++;
+			return 0;
+		}
+	}
+
+	return -1;
+}
+
+static void hashesdb_cache_put(TXDB *dbptr, uint32_t height, uint16_t tx_index, uint8_t *hash)
+{
+	size_t i, idx;
+        idx = dbptr->hashesdb.cache_sz;
+	if (dbptr->hashesdb.cache_capacity < dbptr->hashesdb.cache_max) {
+		if (idx + 1 >= dbptr->hashesdb.cache_capacity) {
+			dbptr->hashesdb.cache_capacity = MAX(1, dbptr->hashesdb.cache_capacity * 2);
+			dbptr->hashesdb.cache = realloc(dbptr->hashesdb.cache, dbptr->hashesdb.cache_capacity * sizeof(*dbptr->hashesdb.cache));
+		}
+
+		dbptr->hashesdb.cache_sz++;
+	} else {
+		/*
+		 * If cache is full add the new txid to the least seen one,
+		 * the seen count is increased every time a txid is requested
+		 * from the cache.
+		 */
+		idx = USHRT_MAX;
+		for (i = 0; i < dbptr->hashesdb.cache_sz; i++) {
+			if (dbptr->hashesdb.cache[i].seen < idx)
+				idx = dbptr->hashesdb.cache[i].seen;
+		}
+	}
+	
+	memcpy(dbptr->hashesdb.cache[idx].hash, hash, 32);
+	dbptr->hashesdb.cache[idx].height = height;
+	dbptr->hashesdb.cache[idx].tx_index = tx_index;
+	dbptr->hashesdb.cache[idx].seen = 1;
 }
 
 static leveldb_iterator_t *create_iterator_at(struct dbi *db, const void *key, size_t key_sz)
@@ -486,11 +637,34 @@ int txdb_lookup_txhash(TXDB *dbptr, uint8_t *tx_hash, uint32_t height, uint16_t 
 	if (height > dbptr->current_height)
 		return -1;
 	
-    struct txhash_key thkey;
-    thkey.height = height;
-    thkey.tx_index = htobe16(tx_index);
+	if (hashesdb_cache_get(dbptr, height, tx_index, tx_hash) == 0)
+		return 0;
 
-    return db_get(&dbptr->txhashes_ptr, &thkey, sizeof(thkey), tx_hash, 32);
+    	struct tx_offset of;
+    	if (fseeko(dbptr->hashesdb.index_fp, HASHES_INDEX_SEEK(height), SEEK_SET)) {
+		logerrf("txdb error reading index of txhash %d at height %d: %s", tx_index, height, strerror(errno));
+		return -1;
+	}
+    	if (fread(&of, sizeof(of), 1, dbptr->hashesdb.index_fp) != 1) {
+		logerrf("txdb error reading index of txhash %d at height %d: %s", tx_index, height, strerror(errno));
+		return -1;
+	}
+	if (tx_index >= of.tx_count) {
+		logerrf("txdb error tx index out of range: %d at height %d: %s", tx_index, height, strerror(errno));
+		return -1;
+	}
+
+    	if (fseeko(dbptr->hashesdb.data_fp, of.offset + tx_index * 32, SEEK_SET)) {
+		logerrf("txdb error reading txhash %d at height %d: %s", tx_index, height, strerror(errno));
+		return -1;
+	}
+	if (fread(tx_hash, 1, 32, dbptr->hashesdb.data_fp) != 32) {
+		logerrf("txdb error reading txhash %d at height %d: %s", tx_index, height, strerror(errno));
+		return -1;
+	}
+
+	hashesdb_cache_put(dbptr, height, tx_index, tx_hash);
+	return 0;
 }
 
 int txdb_lookup_txhashes_at_height(TXDB *dbptr, HashesVec *hashes, uint32_t height)
@@ -498,39 +672,50 @@ int txdb_lookup_txhashes_at_height(TXDB *dbptr, HashesVec *hashes, uint32_t heig
 	if (height > dbptr->current_height)
 		return -1;
 
-	struct txhash_key thkey;
-	thkey.height = height;
-    thkey.tx_index = 0;
+	ssize_t data_offs; 
+    	struct tx_offset of;
+    	if (fseeko(dbptr->hashesdb.index_fp, HASHES_INDEX_SEEK(height), SEEK_SET)) {
+		logerrf("txdb error reading txhash indexes at height %d: %s", height, strerror(errno));
+		return -1;
+	}
+    	if (fread(&of, sizeof(of), 1, dbptr->hashesdb.index_fp) != 1) {
+		logerrf("txdb error reading txhash indexes at height %d: %s", height, strerror(errno));
+		return -1;
+	}
 
-    leveldb_iterator_t *iter = create_iterator_at(&dbptr->txhashes_ptr, &thkey, sizeof(thkey));
+	data_offs = ftello(dbptr->hashesdb.data_fp);	
 
-    size_t data_len;
-	char *data = NULL;
-    for (; leveldb_iter_valid(iter); leveldb_iter_next(iter)) {
-        data = (char*) leveldb_iter_key(iter, &data_len);
-        assert(data_len == sizeof(thkey));
+    	uint16_t i;
+	uint8_t tx_hash[32];
+    	for (i = 0; i < of.tx_count; i++) {
+		if (hashesdb_cache_get(dbptr, height, i, tx_hash)) {
+			/* 
+			 * If the txid is not in cache then seek at offset position, retrieve the
+			 * txid and add it to cache
+			 */
+			
+			if (data_offs != of.offset && fseeko(dbptr->hashesdb.data_fp, of.offset, SEEK_SET)) {
+				logerrf("txdb error reading txhashes at height %d: %s", height, strerror(errno));
+				return -1;
+			}		
 
-		memcpy(&thkey, data, sizeof(thkey));
-        if (thkey.height != height)
-            break;
+			if (fread(tx_hash, 1, 32, dbptr->hashesdb.data_fp) != 32) {
+				logerrf("txdb error reading txhashes at height %d: %s", height, strerror(errno));
+				return -1;	
+			}
 
-        data = (char*) leveldb_iter_value(iter, &data_len);
-        assert(data_len == 32);
-
-        /*
-         * the txhash order is enforced by leveldb itself thanks to the lexographical comparator
-         * since the indexes are stored in big-endian byte order the hashes are always sorted
-         */
-        hashes_vec_add(hashes, (uint8_t*) data);
-    }
-
-    leveldb_iter_destroy(iter);
+			data_offs = of.offset;
+			hashesdb_cache_put(dbptr, height, i, tx_hash);
+		}
+		
+        	hashes_vec_add(hashes, (uint8_t*) tx_hash);
+    	}
 	
 	// not found tx at index 0 this means that this height does not exists! NOTE this should never happen!
-    if (hashes->size == 0)
+    	if (hashes->size == 0)
 		return -1;
 
-    return 0;
+    	return 0;
 }
 
 int txdb_store_block_header(TXDB *dbptr, const uint8_t *data, uint32_t height)
@@ -611,16 +796,13 @@ int txdb_store_txs(TXDB *dbptr, BtcTx *txs, size_t txs_sz, uint32_t height)
         }
 	}
 
-    struct txhash_key thkey;
-    thkey.height = height;
+    uint8_t *hashes_buf = (uint8_t*) malloc(txs_sz * 32 * sizeof(uint8_t));
     for (itx = 0; itx < txs_sz; itx++) {
-        // tx index is stored in big endian byte order this enforces key ordering
-        thkey.tx_index = htobe16((uint16_t) itx);
-        if ((ret = db_put(&dbptr->txhashes_ptr, &thkey, sizeof(thkey), txs[itx].txid, 32))) {
-			return ret;
-		}
+        memcpy(hashes_buf + (i * 32), txs[itx].txid, 32);
 	}
-	
+
+    ret = hashesdb_put(dbptr, height, txs_sz, hashes_buf, txs_sz * 32 * sizeof(uint8_t));
+    free(hashes_buf);
     return ret;
 }
 
@@ -701,25 +883,18 @@ int txdb_bulk_store_txs(TXDB *dbptr, BtcTx *txs, size_t txs_sz, uint32_t height)
     }
 
     leveldb_writebatch_destroy(batch);
-    batch = leveldb_writebatch_create();
     
-    struct txhash_key thkey;
-    thkey.height = height;
-
+    uint8_t *hashes_buf = (uint8_t*) malloc(txs_sz * 32);
     for (itx = 0; itx < txs_sz; itx++) {
-        // tx index is stored in big endian byte order this enforces key ordering
-        thkey.tx_index = htobe16((uint16_t) itx);
-        leveldb_writebatch_put(batch, (char*) &thkey, sizeof(thkey), (char*) txs[itx].txid, 32);
+         memcpy(hashes_buf + (itx * 32), txs[itx].txid, 32);
     }
 
-    leveldb_write(dbptr->txhashes_ptr.db, dbptr->txhashes_ptr.wopts, batch, &err);
-    if (err) {
-    	leveldb_writebatch_destroy(batch);
-        logerrf("txdb: bulk store txhashes error %s", err);
-        leveldb_free(err);
-        return -1;
+    /* storing the txhashes */
+    if (hashesdb_put(dbptr, height, txs_sz, hashes_buf, txs_sz * 32 * sizeof(uint8_t))) {
+         logerrf("txdb: error storing txhashes");
+         free(hashes_buf);
+	 	return -1;
     }
-
-    leveldb_writebatch_destroy(batch);
+    free(hashes_buf);
     return 0;
 }
