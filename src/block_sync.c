@@ -379,7 +379,7 @@ int prefetch_blocks2(BitcoinRpcCtx *btc_rpc_ctx, BtcP2pProtoCtx *p2p_ctx, TXDB *
                         }
                     }
 
-                    if (txdb_store_txs(dbptr, txs, txns, height)) {
+                    if (txdb_bulk_store_txs(dbptr, txs, txns, height)) {
                         logerrf("block sync: error storing txs data");
                         assert(0);
                     }
