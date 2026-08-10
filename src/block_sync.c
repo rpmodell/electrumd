@@ -404,11 +404,6 @@ sync_round_end:
         hashes_vec_free(&block_hashes);
 
         txdb_flush(dbptr);
-        if (dbptr->current_height % 100000 <= count) {
-            loginfof("block sync: periodic db compaction");
-            txdb_compact(dbptr);
-        }
-
 
         loginfof("block sync: round ended: new_blocks=%ld, current_height=%ld, last_height=%ld, progress=%f%%, tip=%s",
                  count,

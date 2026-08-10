@@ -40,7 +40,6 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/param.h>
-#include <pthread.h>
 
 #include "logging.h"
 
@@ -238,33 +237,6 @@ size_t txdb_flush(TXDB *dbptr)
 
     fclose(status_fp);
 	return 0;
-}
-
-static void *db_compact(void *uo)
-{
-    leveldb_compact_range(((struct dbi*) uo)->db, NULL, 0, NULL, 0);
-    return NULL;
-}
-
-int txdb_compact(TXDB *dbptr)
-{
-    if (!dbptr)
-        return -1;
-
-    pthread_t txouts_cmcpt_thread;
-    pthread_create(&txouts_cmcpt_thread, NULL, &db_compact, &dbptr->txouts_ptr);
-
-    pthread_t txins_cmcpt_thread;
-    pthread_create(&txins_cmcpt_thread, NULL, &db_compact, &dbptr->txins_ptr);
-
-    pthread_t txhash_cmcpt_thread;
-    pthread_create(&txhash_cmcpt_thread, NULL, &db_compact, &dbptr->txhashes_ptr);
-
-    pthread_join(txouts_cmcpt_thread, NULL);
-    pthread_join(txins_cmcpt_thread, NULL);
-    pthread_join(txhash_cmcpt_thread, NULL);
-
-    return 0;
 }
 
 // DB put / get
@@ -652,42 +624,19 @@ int txdb_store_txs(TXDB *dbptr, BtcTx *txs, size_t txs_sz, uint32_t height)
     return ret;
 }
 
-struct write_thread_args {
-	struct dbi *dbi;
-	leveldb_writebatch_t *batch;
-	int error;
-};
-
-// NOTE if write gives an error the writebatch destroy is not handled by this function!
-static void *db_batch_put(void *ud)
-{
-	struct write_thread_args *args = (struct write_thread_args*) ud;
-    char *err = NULL;
-    leveldb_write(args->dbi->db, args->dbi->wopts, args->batch, &err);
-    if (err) {
-        logdebugf("txdb: bulk store error %s", err);
-        leveldb_free(err);
-		args->error = -1;
-        return NULL;
-    }
-
-	args->error = 0;
-    return NULL;
-}
-
 int txdb_bulk_store_txs(TXDB *dbptr, BtcTx *txs, size_t txs_sz, uint32_t height)
 {
     size_t itx, i;
 
+    char *err = NULL;
     struct utxo_key ukey;
     struct utxo_dbt udbt;
 
     struct txin_key in_key;
     struct txin_dbt in_dbt;
 
-    leveldb_writebatch_t* utxo_batch = leveldb_writebatch_create();
-    leveldb_writebatch_t* txin_batch = leveldb_writebatch_create();
-    leveldb_writebatch_t* hash_batch = leveldb_writebatch_create();
+    leveldb_writebatch_t* batch = NULL;
+    batch = leveldb_writebatch_create();
     for (itx = 0; itx < txs_sz; itx++) {
         assert(itx < USHRT_MAX);
 
@@ -703,11 +652,21 @@ int txdb_bulk_store_txs(TXDB *dbptr, BtcTx *txs, size_t txs_sz, uint32_t height)
                 in_dbt.height = height;
                 in_dbt.tx_index = (uint16_t) itx;
 
-                leveldb_writebatch_put(txin_batch, (char*) &in_key, sizeof(in_key), (char*) &in_dbt, sizeof(in_dbt));
+                leveldb_writebatch_put(batch, (char*) &in_key, sizeof(in_key), (char*) &in_dbt, sizeof(in_dbt));
             }
         }
     }
 
+    leveldb_write(dbptr->txins_ptr.db, dbptr->txins_ptr.wopts, batch, &err);
+    if (err) {
+    	leveldb_writebatch_destroy(batch);
+        logerrf("txdb: bulk store txins error %s", err);
+        leveldb_free(err);
+        return -1;
+    }
+
+    leveldb_writebatch_destroy(batch);
+    batch = leveldb_writebatch_create();
     for (itx = 0; itx < txs_sz; itx++) {
         for (i = 0; i < txs[itx].tx_out_count; i++) {
             if (IS_SCRIPT_OP_RETURN(txs[itx].tx_out[i].pk_script, txs[itx].tx_out[i].pk_script_len))
@@ -719,7 +678,7 @@ int txdb_bulk_store_txs(TXDB *dbptr, BtcTx *txs, size_t txs_sz, uint32_t height)
             ukey.height = 0;
 
             // store the zero scripthash key, this is used as a seek start point, empty value
-            leveldb_writebatch_put(utxo_batch, (char*) &ukey, sizeof(ukey), "", 0);
+            leveldb_writebatch_put(batch, (char*) &ukey, sizeof(ukey), "", 0);
 
             ukey.height = height;
 
@@ -729,53 +688,38 @@ int txdb_bulk_store_txs(TXDB *dbptr, BtcTx *txs, size_t txs_sz, uint32_t height)
             udbt.tx_index = (uint16_t) itx;
 
             if (txs[itx].tx_out[i].pk_script_len > 0)
-                leveldb_writebatch_put(utxo_batch, (char*) &ukey, sizeof(ukey), (char*) &udbt, sizeof(udbt));
+                leveldb_writebatch_put(batch, (char*) &ukey, sizeof(ukey), (char*) &udbt, sizeof(udbt));
         }
     }
+    
+    leveldb_write(dbptr->txouts_ptr.db, dbptr->txouts_ptr.wopts, batch, &err);
+    if (err) {
+    	leveldb_writebatch_destroy(batch);
+        logerrf("txdb: bulk store txouts error %s", err);
+        leveldb_free(err);
+        return -1;
+    }
 
+    leveldb_writebatch_destroy(batch);
+    batch = leveldb_writebatch_create();
+    
     struct txhash_key thkey;
     thkey.height = height;
 
     for (itx = 0; itx < txs_sz; itx++) {
         // tx index is stored in big endian byte order this enforces key ordering
         thkey.tx_index = htobe16((uint16_t) itx);
-        leveldb_writebatch_put(hash_batch, (char*) &thkey, sizeof(thkey), (char*) txs[itx].txid, 32);
+        leveldb_writebatch_put(batch, (char*) &thkey, sizeof(thkey), (char*) txs[itx].txid, 32);
     }
 
-	pthread_t txin_write_thread;
-	struct write_thread_args txin_wta = {.dbi=&dbptr->txins_ptr, .batch=txin_batch, .error=0};
-	pthread_create(&txin_write_thread, NULL, &db_batch_put, &txin_wta);
-	
-	pthread_t utxo_write_thread;
-	struct write_thread_args utxo_wta = {.dbi=&dbptr->txouts_ptr, .batch=utxo_batch, .error=0};
-	pthread_create(&utxo_write_thread, NULL, &db_batch_put, &utxo_wta);
+    leveldb_write(dbptr->txhashes_ptr.db, dbptr->txhashes_ptr.wopts, batch, &err);
+    if (err) {
+    	leveldb_writebatch_destroy(batch);
+        logerrf("txdb: bulk store txhashes error %s", err);
+        leveldb_free(err);
+        return -1;
+    }
 
-	pthread_t hash_write_thread;
-	struct write_thread_args hash_wta = {.dbi=&dbptr->txhashes_ptr, .batch=hash_batch, .error=0};
-	pthread_create(&hash_write_thread, NULL, &db_batch_put, &hash_wta);
-
-	pthread_join(txin_write_thread, NULL);
-	pthread_join(utxo_write_thread, NULL);
-	pthread_join(hash_write_thread, NULL);
-
-    leveldb_writebatch_destroy(utxo_batch);
-    leveldb_writebatch_destroy(txin_batch);
-    leveldb_writebatch_destroy(hash_batch);
-
-	if (txin_wta.error) {
-        logerrf("txdb: error storing txins");
-		return -1;
-	}
-
-	if (utxo_wta.error) {
-        logerrf("txdb: error storing txouts");
-		return -1;
-	}
-
-	if (hash_wta.error) {
-        logerrf("txdb: error storing txhashes");
-		return -1;
-	}
-
+    leveldb_writebatch_destroy(batch);
     return 0;
 }
