@@ -440,12 +440,17 @@ void *btc_sync_thread_func(void *o)
         clock_gettime(CLOCK_REALTIME, &twait);
         twait.tv_sec += SYNC_THREAD_SECONDS;
 
-        pthread_mutex_lock(&arg->mutex);
-        pthread_cond_timedwait(&arg->cond, &arg->mutex, &twait);
-        pthread_mutex_unlock(&arg->mutex);
 
-        if (!electrumd_running)
+        pthread_mutex_lock(&arg->mutex);
+	while (!arg->syncing)
+		pthread_cond_wait(&arg->cond, &arg->mutex);
+	
+        pthread_cond_timedwait(&arg->cond, &arg->mutex, &twait);
+
+        if (!electrumd_running) {
+            pthread_mutex_unlock(&arg->mutex);
             return NULL;
+	}
 
         long prev_height, last_height;
         prev_height = last_height = arg->dbptr->current_height;
@@ -476,6 +481,7 @@ void *btc_sync_thread_func(void *o)
         electrum_rpc_new_scripthashes_notify(arg->dbptr, arg->mc_ptr, &new_scripthashes);
 
         hashes_vec_free(&new_scripthashes);
+        pthread_mutex_unlock(&arg->mutex);
     }
 
     return NULL;
@@ -497,6 +503,14 @@ int sync_thread_start(SyncThreadCtx *sctx, BitcoinRpcCtx *btc_rpc_ctx, BtcP2pPro
 void sync_thread_notify_update(SyncThreadCtx *sctx)
 {
     pthread_mutex_lock(&sctx->mutex);
+    pthread_cond_signal(&sctx->cond);
+    pthread_mutex_unlock(&sctx->mutex);
+}
+
+void sync_thread_set_syncing(SyncThreadCtx *sctx, int syncing)
+{
+    pthread_mutex_lock(&sctx->mutex);
+    sctx->syncing = syncing;
     pthread_cond_signal(&sctx->cond);
     pthread_mutex_unlock(&sctx->mutex);
 }

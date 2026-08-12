@@ -44,6 +44,7 @@ typedef struct {
     BtcP2pProtoCtx *p2p_ctx;
     TXDB *dbptr;
     MempoolCache *mc_ptr;
+    int syncing;
 } SyncThreadCtx;
 
 int prefetch_blocks(BitcoinRpcCtx *btc_rpc_ctx, TXDB *dbptr, HashesVec *touched_addresses);
@@ -52,6 +53,7 @@ int prefetch_blocks3(BitcoinRpcCtx *btc_rpc_ctx, BtcP2pProtoCtx *p2p_ctx, TXDB *
 
 int sync_thread_start(SyncThreadCtx *sctx, BitcoinRpcCtx *btc_rpc_ctx, BtcP2pProtoCtx *p2p_ctx, TXDB *dbptr, MempoolCache *mc_ptr);
 void sync_thread_notify_update(SyncThreadCtx *sctx);
+void sync_thread_set_syncing(SyncThreadCtx *sctx, int syncing);
 void sync_thread_stop(SyncThreadCtx *sctx);
 
 #endif
