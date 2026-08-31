@@ -49,8 +49,7 @@
 #define HEIGHT_ITER_START 1
 
 #define DB_MAX_FILE_SIZE (16*1024*1024) //16mb
-#define DB_TXS_BLK_SIZE (8*1024) //8kb
-#define DB_DEFAULT_BLK_SIZE (4*1024) //4kb
+#define DB_DEFAULT_BLK_SIZE (8*1024) //4kb
 #define HASHES_INDEX_SEEK(H) (H * sizeof(struct tx_offset))
 
 #define HEADERS_DB_FILE_NAME "headers.db"
@@ -242,10 +241,10 @@ int txdb_open(TXDB *dbptr, const char *db_dir, unsigned int cache_size, long sta
         return -1;
 
 
-    if (db_init_open(&dbptr->txins_ptr, db_dir, TXINS_DB_FILE_NAME, leveldb_snappy_compression, DB_TXS_BLK_SIZE, cache_size / 3))
+    if (db_init_open(&dbptr->txins_ptr, db_dir, TXINS_DB_FILE_NAME, leveldb_snappy_compression, DB_DEFAULT_BLK_SIZE, cache_size / 3))
         return -1;
 	
-    if (db_init_open(&dbptr->txouts_ptr, db_dir, TXOUTS_DB_FILE_NAME, leveldb_snappy_compression, DB_TXS_BLK_SIZE, cache_size / 3))
+    if (db_init_open(&dbptr->txouts_ptr, db_dir, TXOUTS_DB_FILE_NAME, leveldb_snappy_compression, DB_DEFAULT_BLK_SIZE, cache_size / 3))
 		return -1;
 
     strcpy(dbptr->db_dir, db_dir);
