@@ -158,6 +158,7 @@ static int db_init_open(struct dbi *db, const char *db_dir, const char *db_name,
 static int hashesdb_open(TXDB *db, const char *db_dir, const char *db_name, size_t cache_mem)
 {
 	char db_path[1024];
+	struct stat statbuf;
 
 	db->hashesdb.cache_sz = 0;
 	db->hashesdb.cache_capacity = 0;
@@ -174,13 +175,21 @@ static int hashesdb_open(TXDB *db, const char *db_dir, const char *db_name, size
 
 
 	sprintf(db_path, "%s/%s/index", db_dir, db_name);
-	if ((db->hashesdb.index_fp = fopen(db_path, "w+b")) == NULL) {
-        logerrf("txdb open %s fail: %s (index)", db_name, strerror(errno));
+	if (stat(db_path, &statbuf) && errno != ENOENT) {
+		logerrf("txdb open %s fail: %s (index)", db_name, strerror(errno));
+		return -1;
+	}
+	if ((db->hashesdb.index_fp = fopen(db_path, errno == ENOENT ? "w+b" : "r+b")) == NULL) {
+        	logerrf("txdb open %s fail: %s (index)", db_name, strerror(errno));
 		return -2;
 	}
 
 	sprintf(db_path, "%s/%s/data", db_dir, db_name);
-	if ((db->hashesdb.data_fp = fopen(db_path, "w+b")) == NULL) {
+	if (stat(db_path, &statbuf) && errno != ENOENT) {
+		logerrf("txdb open %s fail: %s (data)", db_name, strerror(errno));
+		return -1;
+	}
+	if ((db->hashesdb.data_fp = fopen(db_path, errno == ENOENT ? "w+b" : "r+b")) == NULL) {
         logerrf("txdb open %s fail: %s (data)", db_name, strerror(errno));
 		return -2;
 	}
@@ -280,6 +289,13 @@ int txdb_close(TXDB *dbptr)
         logerrf("txdb error closing %s db", TXOUTS_DB_FILE_NAME);
 		return -1;
     }
+
+    /* Clear cache */
+
+	dbptr->hashesdb.cache_sz = 0;
+	dbptr->hashesdb.cache_capacity = 0;
+	if (dbptr->hashesdb.cache)
+		free(dbptr->hashesdb.cache);
 
 	return 0;
 }
