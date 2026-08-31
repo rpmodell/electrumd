@@ -309,12 +309,16 @@ int main(int argc, char **argv)
     sync_thread_stop(&sync_thread_ctx);
 
 shutdown:
-    loginfof("electrumd: exited");
+    loginfof("electrumd: flushing txdb: compaction");
+    txdb_compact(&txdb);
+
+    loginfof("electrumd: closing txdb");
     txdb_close(&txdb);
 
     if (configs.electrumd_rpc_listen_ssl)
         ssl_shutdown();
 
+    loginfof("electrumd: exited");
     remove(configs.pid_file_path);
     configs_free(&configs);
 

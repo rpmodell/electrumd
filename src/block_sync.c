@@ -49,6 +49,7 @@
 */
 // #define TEST_BLKCMP 1
 
+#define TX_COUNT_CMPCT_THRESHOLD (100000000) // an arbitrary number of transactions
 #define SYNC_THREAD_SECONDS 30
 
 /*
@@ -246,6 +247,7 @@ static int block_locator_hashes(BitcoinRpcCtx *btc_rpc_ctx, HashesVec *locator, 
 int prefetch_blocks2(BitcoinRpcCtx *btc_rpc_ctx, BtcP2pProtoCtx *p2p_ctx, TXDB *dbptr, HashesVec *new_scripthashes)
 {
     int ret = 0;
+    size_t cmpct_tx_count = 0;
 
     if ((ret = p2p_connect(p2p_ctx, dbptr->current_height))) {
         logerrf("block sync: p2p error: cannot connect with bitcoin client %s:%d", p2p_ctx->addr, p2p_ctx->port);
@@ -384,6 +386,7 @@ int prefetch_blocks2(BitcoinRpcCtx *btc_rpc_ctx, BtcP2pProtoCtx *p2p_ctx, TXDB *
                         assert(0);
                     }
 
+                    cmpct_tx_count += txns;
                     btc_txs_free(txs, txns);
                 }
 
@@ -402,6 +405,19 @@ sync_round_end:
         bytes_to_hex_reverse(block_hashes.v[count - 1], 32, hashstr);
 
         hashes_vec_free(&block_hashes);
+
+        /*
+         * If number of comulative transaction stored is above the
+         * compaction threshold we trigger a manual compaction
+         * to avoid WAL to become too big and to try to avoid
+         * deadlocks on some filesystems such as ZFS and BTRFS
+        */
+        if (cmpct_tx_count >= TX_COUNT_CMPCT_THRESHOLD) {
+            loginfof("block sync: periodic txdb compaction");
+
+            txdb_compact(dbptr);
+            cmpct_tx_count = 0;
+        }
 
         txdb_flush(dbptr);
 

@@ -252,6 +252,19 @@ int txdb_open(TXDB *dbptr, const char *db_dir, unsigned int cache_size, long sta
 	return 0;
 }
 
+int txdb_compact(TXDB *dbptr)
+{
+    logdebugf("txdb: compaction %s", TXOUTS_DB_FILE_NAME);
+    leveldb_compact_range(dbptr->txouts_ptr.db, NULL, 0, NULL, 0);
+
+    logdebugf("txdb: compaction %s", TXINS_DB_FILE_NAME);
+    leveldb_compact_range(dbptr->txins_ptr.db, NULL, 0, NULL, 0);
+
+    logdebugf("txdb: compaction %s", HEADERS_DB_FILE_NAME);
+    leveldb_compact_range(dbptr->headers_ptr.db, NULL, 0, NULL, 0);
+    return 0;
+}
+
 static int db_close(struct dbi *db)
 {
     leveldb_writeoptions_destroy(db->wopts);

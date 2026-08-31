@@ -110,6 +110,14 @@ int txdb_open(TXDB *dbptr, const char *db_dir, unsigned int cache_size, long sta
 int txdb_close(TXDB *dbptr);
 
 /**
+ * Triggers a compaction of the database.
+ *
+ * @param dbptr Pointer to a TXDB structure that will hold the database handle.
+ * @return 0 on success, non-zero error code on failure.
+ */
+int txdb_compact(TXDB *dbptr);
+
+/**
  * Flushes the db to disk.
  *
  * @param dbptr Pointer to a TXDB structure that will hold the database handle.
