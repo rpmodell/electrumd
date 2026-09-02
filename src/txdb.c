@@ -116,9 +116,7 @@ PACKED_STRUCT tx_offset {
     uint16_t tx_count; // the index of the tx in which holds this input is in the block
 };
 
-
-
-static int db_init_open(struct dbi *db, const char *db_dir, const char *db_name, int compr, size_t blksz, ssize_t cache_buf_size)
+static int db_init_open(leveldb_env_t *env, struct dbi *db, const char *db_dir, const char *db_name, int compr, size_t blksz, ssize_t cache_buf_size)
 {
 	/* Create and initialize LevelDB database */
 	char db_path[1024];
@@ -126,6 +124,7 @@ static int db_init_open(struct dbi *db, const char *db_dir, const char *db_name,
 	
 	char *err = NULL;
 	db->opts = leveldb_options_create();
+    leveldb_options_set_env(db->opts, env);
 
 	if (cache_buf_size > 0)
     	leveldb_options_set_write_buffer_size(db->opts, cache_buf_size);
@@ -234,18 +233,20 @@ int txdb_open(TXDB *dbptr, const char *db_dir, unsigned int cache_size, long sta
         dbptr->current_height = start_height;
     }
 
-    if (db_init_open(&dbptr->headers_ptr, db_dir, HEADERS_DB_FILE_NAME, leveldb_no_compression, DB_DEFAULT_BLK_SIZE, 0))
+    if ((dbptr->db_env = leveldb_create_default_env()) == NULL)
         return -1;
+
+    if (db_init_open(dbptr->db_env, &dbptr->headers_ptr, db_dir, HEADERS_DB_FILE_NAME, leveldb_no_compression, DB_DEFAULT_BLK_SIZE, 0))
+        return -1;
+
+    if (db_init_open(dbptr->db_env, &dbptr->txins_ptr, db_dir, TXINS_DB_FILE_NAME, leveldb_snappy_compression, DB_DEFAULT_BLK_SIZE, cache_size / 3))
+        return -1;
+	
+    if (db_init_open(dbptr->db_env, &dbptr->txouts_ptr, db_dir, TXOUTS_DB_FILE_NAME, leveldb_snappy_compression, DB_DEFAULT_BLK_SIZE, cache_size / 3))
+		return -1;
 
     if (hashesdb_open(dbptr, db_dir, TXHASHES_DB_FILE_NAME, cache_size / 3))
         return -1;
-
-
-    if (db_init_open(&dbptr->txins_ptr, db_dir, TXINS_DB_FILE_NAME, leveldb_snappy_compression, DB_DEFAULT_BLK_SIZE, cache_size / 3))
-        return -1;
-	
-    if (db_init_open(&dbptr->txouts_ptr, db_dir, TXOUTS_DB_FILE_NAME, leveldb_snappy_compression, DB_DEFAULT_BLK_SIZE, cache_size / 3))
-		return -1;
 
     strcpy(dbptr->db_dir, db_dir);
 	return 0;
@@ -278,29 +279,30 @@ int txdb_close(TXDB *dbptr)
 {
     if (db_close(&dbptr->headers_ptr)) {
         logerrf("txdb error closing %s db", HEADERS_DB_FILE_NAME);
-	return -1;
+        return -1;
     }
+    if (db_close(&dbptr->txins_ptr)) {
+        logerrf("txdb error closing %s db", TXINS_DB_FILE_NAME);
+        return -1;
+    }
+    if (db_close(&dbptr->txouts_ptr)) {
+        logerrf("txdb error closing %s db", TXOUTS_DB_FILE_NAME);
+        return -1;
+    }
+
+    // destroy the leveldb environment
+    leveldb_env_destroy(dbptr->db_env);
 
     if (fflush(dbptr->hashesdb.index_fp)) {
         logerrf("txdb error closing %s (index) db", TXHASHES_DB_FILE_NAME);
-	return -1;   
+        return -1;
     }
     fclose(dbptr->hashesdb.index_fp);
     if (fflush(dbptr->hashesdb.data_fp)) {
         logerrf("txdb error closing %s (data) db", TXHASHES_DB_FILE_NAME);
-	return -1;   
+        return -1;
     }
     fclose(dbptr->hashesdb.data_fp);
-
-    if (db_close(&dbptr->txins_ptr)) {
-        logerrf("txdb error closing %s db", TXINS_DB_FILE_NAME);
-		return -1;
-    }
-    
-    if (db_close(&dbptr->txouts_ptr)) {
-        logerrf("txdb error closing %s db", TXOUTS_DB_FILE_NAME);
-		return -1;
-    }
 
     /* Clear cache */
 

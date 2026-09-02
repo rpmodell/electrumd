@@ -71,22 +71,23 @@ struct dbi {
 typedef struct {
     char db_dir[512];
     long current_height;
+    leveldb_env_t *db_env;
     struct dbi headers_ptr;
     struct dbi txins_ptr; // key txindex (outpoint hash prefix) hash first 8 bytes, value height
     struct dbi txouts_ptr; // key outpoint first 8 bytes, value utxo_dbt
     struct {
         size_t offset;
-	FILE *index_fp;
+        FILE *index_fp;
         FILE *data_fp;
-	size_t cache_max;
-	size_t cache_capacity;
-	size_t cache_sz;
-	struct {
-		uint8_t hash[32];
-		uint32_t height;
-		uint16_t tx_index;
-		uint16_t seen;
-	} *cache;
+        size_t cache_max;
+        size_t cache_capacity;
+        size_t cache_sz;
+        struct {
+            uint8_t hash[32];
+            uint32_t height;
+            uint16_t tx_index;
+            uint16_t seen;
+        } *cache;
    } hashesdb;
 } TXDB;
 
