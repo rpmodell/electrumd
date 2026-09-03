@@ -49,7 +49,7 @@
 */
 // #define TEST_BLKCMP 1
 
-#define TX_COUNT_CMPCT_THRESHOLD (100000000) // an arbitrary number of transactions
+#define TX_COUNT_CMPCT_THRESHOLD (250000000) // an arbitrary number of transactions
 #define SYNC_THREAD_SECONDS 30
 
 /* Sync Errors */
