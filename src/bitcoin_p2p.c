@@ -204,6 +204,8 @@ int p2p_connect(BtcP2pProtoCtx *ctx, int32_t height)
     if (fd < 0)
         return -2;
 
+
+    uint8_t *version_data = NULL;
     struct timeval optval;
     optval.tv_sec = 10;
     optval.tv_usec = 0;
@@ -254,7 +256,7 @@ int p2p_connect(BtcP2pProtoCtx *ctx, int32_t height)
     // since we do not send the user agent message but bitcoincore does we can not receive the
     // version struct directly but we need to allocate memory to receive the full payload
     // this should change in the future is a bad and ugly hack to get things working....
-    uint8_t *version_data = (uint8_t*) malloc(header.payload_sz * sizeof(uint8_t));
+    version_data = (uint8_t*) malloc(header.payload_sz * sizeof(uint8_t));
     if (recv(ctx->sock_fd, version_data, header.payload_sz, 0) != header.payload_sz) {
         free(version_data);
         goto p2p_connect_fail;
@@ -279,6 +281,8 @@ int p2p_connect(BtcP2pProtoCtx *ctx, int32_t height)
     return 0;
 
 p2p_connect_fail:
+    free(version_data);
+
     logerrf("p2p connect error: %s", strerror(errno));
     ctx->sock_fd = -1;
     close(fd);
@@ -309,7 +313,7 @@ int p2p_wait_recv_message(BtcP2pProtoCtx *ctx, struct p2p_msg_header *header, co
             free(tmpbuf);
         }
     }
-    logdebugf("recv_first_useful_header: fail");
+
     return ret;
 }
 
@@ -321,17 +325,17 @@ int p2p_ping(BtcP2pProtoCtx *ctx)
 
     struct p2p_msg_header header;
 
-    if (( ret = p2p_send_message(ctx, "ping", (uint8_t*) &nonce_a, sizeof(nonce_a)))) {
+    if ((ret = p2p_send_message(ctx, "ping", (uint8_t*) &nonce_a, sizeof(nonce_a))))
         return ret;
-    }
 
-    if ((ret = p2p_wait_recv_message(ctx, &header, "pong")) || header.payload_sz != sizeof(nonce_a)) {
-        return header.payload_sz != sizeof(nonce_a) ? -1 : ret;
-    }
-
-    if ((ret = recv(ctx->sock_fd, &nonce_b, sizeof(nonce_b), 0))) {
+    if ((ret = p2p_recv_header(ctx, &header, "pong")))
         return ret;
-    }
+
+    if (header.payload_sz != sizeof(nonce_a))
+        return -1;
+
+    if (recv(ctx->sock_fd, &nonce_b, sizeof(nonce_b), 0) != sizeof(nonce_b))
+        return -1;
 
     return -(nonce_a != nonce_b);
 }
@@ -392,10 +396,12 @@ int p2p_receive_message(BtcP2pProtoCtx *ctx, uint8_t **rawpayload, size_t *paylo
     }
 
     //verify payload chksum
-    unsigned char checksum[SHA256_DIGEST_LENGTH];
+    uint8_t checksum[SHA256_DIGEST_LENGTH];
     double_sha256(checksum, *rawpayload, header.payload_sz);
-
-    assert(memcmp(checksum, header.checksum, 4) == 0);
+    if (memcmp(checksum, header.checksum, 4)) {
+        free(*rawpayload);
+        return -1;
+    }
 
 #if (P2P_HEX_DEBUG == 1)
     print_array_hex(cmd, *rawpayload, header.payload_sz);
@@ -460,7 +466,7 @@ int p2p_get_headers_heashes(BtcP2pProtoCtx *ctx, HashesVec *out_hashes, uint8_t 
     msgbuf = (uint8_t*) malloc(header.payload_sz * sizeof(uint8_t));
     msgbufp = msgbuf;
 
-    if (p2p_payload_recv(ctx, msgbuf, header.payload_sz)) {
+    if ((ret = p2p_payload_recv(ctx, msgbuf, header.payload_sz))) {
         goto get_headers_heashes_end;
     }
 

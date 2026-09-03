@@ -52,6 +52,13 @@
 #define TX_COUNT_CMPCT_THRESHOLD (100000000) // an arbitrary number of transactions
 #define SYNC_THREAD_SECONDS 30
 
+/* Sync Errors */
+#define SYNC_RPC_ERROR -1
+#define SYNC_P2P_ERROR -2
+#define SYNC_DB_ERROR  -3
+#define SYNC_ALL_ERROR -4
+
+
 /*
     Gets blocks using Bitcoin Core Rpc Protocol
     deprecated because its slow
@@ -184,14 +191,17 @@ static int wait_reconnect(BtcP2pProtoCtx *ctx, uint32_t height, int attempts)
 {
 	int t = 5;
 	while (attempts--) {
+        loginfof("block sync: reconnect with bitcoin daemon in %ds", t);
+
 		if (ctx->sock_fd > -1)
 			close(ctx->sock_fd);
 
 		sleep(t);
-		if (p2p_connect(ctx, height)) {
-			logerrf("block sync: p2p error: cannot connect with bitcoin daemoni, retry in %d seconds", t);
+        if (p2p_connect(ctx, height)) {
+            logerrf("block sync: p2p error: cannot connect with bitcoin daemon");
 			continue;
-             	}
+        }
+
 		if (p2p_ping(ctx) == 0)
 			return 0;
 
@@ -258,7 +268,7 @@ int prefetch_blocks2(BitcoinRpcCtx *btc_rpc_ctx, BtcP2pProtoCtx *p2p_ctx, TXDB *
     long last_height = -1;
 #ifndef DB_TEST_HEIGHT
     if (getblockcount(btc_rpc_ctx, &last_height)) {
-        return -1;
+        return SYNC_RPC_ERROR;
     }
 #else
     last_height = DB_TEST_HEIGHT;
@@ -267,14 +277,14 @@ int prefetch_blocks2(BitcoinRpcCtx *btc_rpc_ctx, BtcP2pProtoCtx *p2p_ctx, TXDB *
     if (dbptr->current_height  < 0) {
         uint8_t header[BLOCK_HEADER_SIZE];
         if (getblockhash(btc_rpc_ctx, 0, hashstr))
-            return -1;
+            return SYNC_RPC_ERROR;
 
         if (getblockheader(btc_rpc_ctx, hashstr, header))
-            return -1;
+            return SYNC_RPC_ERROR;
 
         if (txdb_store_block_header(dbptr, header, 0)) {
             logerrf("block sync: error storing genesis block header");
-            return -1;
+            return SYNC_RPC_ERROR;
         }
 
         dbptr->current_height++;
@@ -286,7 +296,7 @@ int prefetch_blocks2(BitcoinRpcCtx *btc_rpc_ctx, BtcP2pProtoCtx *p2p_ctx, TXDB *
         if ((time(NULL) - last_height_check) >= (20 * UNIX_MINUTE)) {
             long nw_height = -1;
             if (getblockcount(btc_rpc_ctx, &nw_height)) {
-                return -1;
+                return SYNC_RPC_ERROR;
             }
 
             if (nw_height > last_height) {
@@ -307,14 +317,14 @@ int prefetch_blocks2(BitcoinRpcCtx *btc_rpc_ctx, BtcP2pProtoCtx *p2p_ctx, TXDB *
         count = 0;
         if (block_locator_hashes(btc_rpc_ctx, &locator, dbptr->current_height)) {
             hashes_vec_free(&locator);
-            ret = -1;
+            ret = SYNC_RPC_ERROR;
             goto sync_round_end;
         }
 
         // ask new headers using getheaders p2p
-        if ((p2p_get_headers_heashes(p2p_ctx, &block_hashes, locator.v, locator.size, NULL)) < 0) {
-            logdebugf("p2p_get_headers_heashes fail %s", strerror(errno));
-            ret = -2;
+        if (p2p_get_headers_heashes(p2p_ctx, &block_hashes, locator.v, locator.size, NULL) < 0) {
+            logdebugf("block sync: receive block hashes fail: %s %s", strerror(errno));
+            ret = SYNC_P2P_ERROR;
             goto sync_round_end;
         }
 
@@ -324,18 +334,17 @@ int prefetch_blocks2(BitcoinRpcCtx *btc_rpc_ctx, BtcP2pProtoCtx *p2p_ctx, TXDB *
             batch = MIN(block_hashes.size - count, P2P_INV_MAX_SIZE);
 
             // send getdata for new blocks, max is 500 per getdata
-            if ((ret = p2p_get_data(p2p_ctx, block_hashes.v + count, batch, MSG_WITNESS_BLOCK))) {
-                logdebugf("p2p_get_data fail %s", strerror(errno));
-                ret = -2;
+            if (p2p_get_data(p2p_ctx, block_hashes.v + count, batch, MSG_WITNESS_BLOCK)) {
+                ret = SYNC_P2P_ERROR;
                 goto sync_round_end;
             }
 
             for (i = 0; i < batch; i++, count++) {
                 uint8_t *rawblock = NULL;
                 size_t block_sz = 0;
-                if ((p2p_receive_message(p2p_ctx, &rawblock, &block_sz, MSG_CMD_BLOCK))) {
-                    logdebugf("block sync: receive block fail: %s", strerror(errno));
-                    ret = -2;
+                if (p2p_receive_message(p2p_ctx, &rawblock, &block_sz, MSG_CMD_BLOCK)) {
+                    logerrf("block sync: receive block fail: %s", strerror(errno));
+                    ret = SYNC_P2P_ERROR;
                     goto sync_round_end;
                 }
 
@@ -344,7 +353,7 @@ int prefetch_blocks2(BitcoinRpcCtx *btc_rpc_ctx, BtcP2pProtoCtx *p2p_ctx, TXDB *
                 if (block_sz < BLOCK_HEADER_SIZE) {
                     logerrf("blocks sync: illegal size of block: height=%d, size=%ld", height, block_sz);
                     free(rawblock);
-                    assert(0);
+                    ret = SYNC_ALL_ERROR;
                     goto sync_round_end;
                 }
 #ifdef TEST_BLKCMP
@@ -368,7 +377,7 @@ int prefetch_blocks2(BitcoinRpcCtx *btc_rpc_ctx, BtcP2pProtoCtx *p2p_ctx, TXDB *
                     if ((txns = btc_parse_txs(&txs, rawblock, block_sz)) <= 0) {
                         logerrf("blocks sync: failed to parse block at height %ld", height);
                         free(rawblock);
-                        assert(0);
+                        ret = SYNC_ALL_ERROR;
                         goto sync_round_end;
                     }
 
@@ -383,7 +392,8 @@ int prefetch_blocks2(BitcoinRpcCtx *btc_rpc_ctx, BtcP2pProtoCtx *p2p_ctx, TXDB *
 
                     if (txdb_bulk_store_txs(dbptr, txs, txns, height)) {
                         logerrf("block sync: error storing txs data");
-                        assert(0);
+                        ret = SYNC_DB_ERROR;
+                        goto sync_round_end;
                     }
 
                     cmpct_tx_count += txns;
@@ -392,7 +402,8 @@ int prefetch_blocks2(BitcoinRpcCtx *btc_rpc_ctx, BtcP2pProtoCtx *p2p_ctx, TXDB *
 
                 if (txdb_store_block_header(dbptr, rawblock, height)) {
                     logerrf("block sync: error storing block headers");
-                    assert(0);
+                    ret = SYNC_DB_ERROR;
+                    goto sync_round_end;
                 }
                 // logdebugf("stored block no=%ld", i);
 
@@ -427,19 +438,19 @@ sync_round_end:
                  last_height,
                  ((float) dbptr->current_height / (float) last_height) * 100.0,
                  hashstr
-                 );
+            );
 
-         if ((ret == -2) && p2p_ping(p2p_ctx)) {
-             /*
-                If ret is -2 there is an issue communicating with bitcoind, so we ping bitcoind
-                and, if the daemon not reply, we close the connection, wait 5s and reconnect.
-             */
-             logerrf("block sync: p2p error: wait 5 sec and reconnect");
-             if ((ret = wait_reconnect(p2p_ctx, dbptr->current_height, 5))) {
-                 logerrf("block sync: p2p error: cannot connect with bitcoin daemon");
-                 return ret;
-             }
-         }
+        switch (ret) {
+        case SYNC_ALL_ERROR:
+        case SYNC_DB_ERROR:
+            return ret;
+        case SYNC_P2P_ERROR:
+            if ((ret = wait_reconnect(p2p_ctx, dbptr->current_height, 5))) {
+                logerrf("block sync: p2p error: cannot connect with bitcoin daemon");
+                return ret;
+            }
+            break;
+        }
     }
     return 0;
 }
