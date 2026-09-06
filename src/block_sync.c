@@ -265,6 +265,8 @@ int prefetch_blocks2(BitcoinRpcCtx *btc_rpc_ctx, BtcP2pProtoCtx *p2p_ctx, TXDB *
     }
 
     char hashstr[65]; // hex as string 2*32 + 1
+    memset(hashstr, 0, sizeof(hashstr));
+
     long last_height = -1;
 #ifndef DB_TEST_HEIGHT
     if (getblockcount(btc_rpc_ctx, &last_height)) {
@@ -413,7 +415,8 @@ int prefetch_blocks2(BitcoinRpcCtx *btc_rpc_ctx, BtcP2pProtoCtx *p2p_ctx, TXDB *
         }
 
 sync_round_end:
-        bytes_to_hex_reverse(block_hashes.v[count - 1], 32, hashstr);
+        if (count)
+            bytes_to_hex_reverse(block_hashes.v[count - 1], 32, hashstr);
 
         hashes_vec_free(&block_hashes);
 
