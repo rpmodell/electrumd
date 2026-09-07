@@ -303,7 +303,7 @@ int main(int argc, char **argv)
 
     if (electrum_server_start(&mcp, &rpc_ctx, &txdb, &sync_thread_ctx, &configs)) {
         ret = EXIT_FAILURE;
-        goto shutdown;
+        electrumd_running = 0;
     }
 
     sync_thread_stop(&sync_thread_ctx);
