@@ -199,6 +199,107 @@ def test_blockchain_block_headers_2():
     assert result["max"] == 2016
 
 
+def test_blockchain_block_headers_3():
+    assert_electrumd_running()
+
+    result = jsonrpc_send_request(
+        ELECTRUMD_HOST,
+        ELECTRUMD_PORT,
+        "blockchain.block.headers",
+        [567899, 22]
+    )
+
+    assert result["hex"] == (
+        "00000020cd29dd9e6bdb1316a41b4e043b5d48f84987c674b72f0d00000000000000000067d07"
+                             "5a9f40250aa6e86aa619bc8bbd8efea70f893cb1b5773d7068772de7207d183915c17612e1701"
+                             "69031a00000020cbe65a83cb59a820668d7409d76988a18c1a15c54beb1b00000000000000000"
+                             "0ce79a7fb108ae29b01383625ef1ba45598d89db8ec034c6fee8e48d16cbfca51b484915c1761"
+                             "2e17801d2ea8000000201b498c9fe87751ff31b2c142e3207d04404644e086e11c00000000000"
+                             "0000000937fc51cfd46524bead4c774164ab3a03e46e5495c502dcc98ae3b22ad013c3e978e91"
+                             "5c17612e17456a1cb3000000201a95e2fbbf03bd04e7a1ee0958d21956a9dae48e14f50800000"
+                             "00000000000003028ab5d72029d4a9730521346e276c9944ff38951422afbb5904c74ef72a9cc"
+                             "1792915c17612e17319b6e8600000020d67bf0a6c74810e19144724eaa7b1105db70664868192"
+                             "400000000000000000025e575337328f5c0cf8dc87243b821df7f5452713f6a9b53e999ca1e65"
+                             "9622402890915c17612e17f512610f000000200a434d12b899f60da57da1181a59ec6adb35a42"
+                             "2ffea16000000000000000000db442b4f7666e7436bfe6db744d5bc5f561d6abeca54ef1ed2a7"
+                             "5d6832283c1d7f90915c17612e171a0942c10000002078a0f9780166493214f877fa4a1e9e27d"
+                             "ed7398beef32d000000000000000000fe7a8bf0860a32c3cb6d445ec5fad33949dde7036f1327"
+                             "f8ff3429203e68785eef91915c17612e176204e98f000040201be16a07cd43d0531e3fefaeb85"
+                             "89e8d4682a873541323000000000000000000199e2dade3eb77b572d8b6a3a10079aff4fc3f21"
+                             "6f2b51778dc2eae533ff0cb71c92915c17612e17d4baeac5000000201957fa176aa630e06914e"
+                             "56e117c776dff94ff9dc61611000000000000000000ae9b0fc4ca8a679c8b271e1bdb00d28c91"
+                             "d823bca755c3369d25a2c352f65a348593915c17612e173d3fa047000080201dbbcfb4073da22"
+                             "a5800ccf33c52694a8a157f6651220300000000000000000049303f4a8b4290409d9feb533a48"
+                             "5239db78b647094547931ba4409e9be9b52f9d94915c17612e17e47c0876000000206492e1399"
+                             "accb0a88e83d59696e3c8cd052bfe459a4903000000000000000000fd13c9fcac631f835a29fe"
+                             "7720656592363c1b568222db5afe909ee65a84cd6bc794915c17612e17d022859d00000020639"
+                             "2b5ea36c7c4a80dcb6d1547b895a9019bd019a66c270000000000000000009825d7d232107b99"
+                             "afe39511dd5f1a0fbeb2c58f15596910bb6d9e9d4fd6ee57a596915c17612e1766b5a74c00000"
+                             "0206e50e0afd40fca9e0666fa2f64dbb117b64bbb6ecb9b280000000000000000004eb39e17da"
+                             "16ea0c93a858cd582a43c8c423b5315157294def4ff39e98b2f97a6b99915c17612e179c900f5"
+                             "60000002028eb7b1e4385ce8e69d01c31ec957e8a2c5abbcd9b8c12000000000000000000ae57"
+                             "cad40ecbd86bbf53e4bcab5ee46bf992eaa831a4a48b8fa9e90b55becf9ac09a915c17612e17f"
+                             "a997f780000802015939607a92df95cbd9a46a86b1990c1b301a80ad03f160000000000000000"
+                             "003243d15f1df430a5f7da00b539149cc07b264375b12fd3e5bee085793cc7a3c2339f915c176"
+                             "12e17ac6a40ec00004020766dbfa2628b341ad73184e9854b04a3187056df4b36270000000000"
+                             "000000000490792ee9fbda0be87647c010cad3d91d1b27ce933e40bbbdb06d732657a038f19f9"
+                             "15c17612e17f26fbf1c00008020e8ec11030cf0ed22c3ae06fd3851801d1c0c5e34cbd02c0000"
+                             "000000000000000afa787fae2cc0e492f53b1f364bad31308daa384a35d506f955e6cf7a8912"
+                             "622ea1915c17612e17602d35c9000000208800e68d05447b7d1087c05b8b9523c8ad7439411b"
+                             "ce1d000000000000000000f635c561e78503ff869df80753e81ee7cfec01adb5a8940cc027c22"
+                             "d19cb37abdca4915c17612e176de82f4a000000203ee03ba2b265c910c72cfe2015272c1f28d1"
+                             "4e25eeda2b000000000000000000a9c53978a4c45fb3be1c4cc5f025ebe297b0a18eb6ac9171d"
+                             "5fc4f70a6c032fde3a9915c17612e17988a8f0d00e0ff3fb51e62618d2a85e63e5c40be8e2c3f"
+                             "1e725443e8bbc229000000000000000000baa40f09c611ab9f4360293e8173f17c6379bf2e8b6"
+                             "f32e66ac6296a8b4b779488ab915c17612e1734ff206100000020ff669c66ca2c145523788665"
+                             "fa47621c5d44bb7b9a871400000000000000000079f526fce7ef19a9d581bb3315ba9a3051d4d"
+                             "865dabb1d3ddbabe892ca59bc422cad915c17612e17399538590000002072faca0d8ae3b3eea"
+                             "8f729c3b75f5dad6ef6965d3553040000000000000000003593b1194fafec901ecf22a509e7f"
+                             "a9167ccf65a8ab678f7db69c27cdf54e71f9ead915c17612e17d8e8d2a8"
+                             )
+    assert result["count"] == 22
+    assert result["max"] == 2016
+
+
+def test_blockchain_block_headers_4():
+    assert_electrumd_running()
+
+    result = jsonrpc_send_request(
+        ELECTRUMD_HOST,
+        ELECTRUMD_PORT,
+        "blockchain.block.headers",
+        [655825, 2]
+    )
+
+    assert result["hex"] == (
+        "000040204325d46570db23fa4c2c52d34293e16cf6a2f44c684500000000000000000000ce2c830367878cd01300a6284cd0fc019f58b"
+        "e0a9664d7b3b636fa8dec01ee085897a65f33c41017f87c1b2a00000020c9c22b265a711dd5cdaff808621168bb7fdbfe581d4e030000"
+        "000000000000006480a428e222877743f3918a0bac2bb9169a969d650f7e283022ecc3c434e2608398a65f33c410179cecbfd1"
+    )
+
+    assert result["count"] == 2
+    assert result["max"] == 2016
+
+
+def test_blockchain_block_headers_5():
+    assert_electrumd_running()
+
+    result = jsonrpc_send_request(
+        ELECTRUMD_HOST,
+        ELECTRUMD_PORT,
+        "blockchain.block.headers",
+        [757221, 1]
+    )
+
+    assert result["hex"] == (
+        "00008020b1010a2b794fbf535a2c6aeae8f3a3a0f4583f30313b04000000000000000000ade2c8b469072d2fd17d773d9d6d92da64f6"
+        "3cfb32808179523e0f261e6fabf0e2903d63aef908177901c961"
+    )
+
+    assert result["count"] == 1
+    assert result["max"] == 2016
+
+
 def test_blockchain_scripthash_getbalance_1():
     assert_electrumd_running()
 
@@ -461,6 +562,34 @@ def test_blockchain_transaction_get_merkle_2():
         "46d141295a256609df6fbf719447022cd18133a0a89ea25621198fcd57a6340d",
         "aa96ea98ef1269873821fe2b78599c4a56cd0f70dce35d4a9a2bc411b5ff53e2",
         "8c4f69acd4fc6174516a172b4f8ab8d662e361b61f423f2de795cbfbd0a4149e"
+    ]
+
+
+def test_blockchain_transaction_get_merkle_3():
+    assert_electrumd_running()
+
+    result = jsonrpc_send_request(
+        ELECTRUMD_HOST,
+        ELECTRUMD_PORT,
+        "blockchain.transaction.get_merkle",
+        ["e2a1aac724fcdf12647a9dcc6c8e52ee52698c6ac45677a661ca75c159de2310",932444]
+    )
+
+    assert result["block_height"] == 932444
+    assert result["pos"] == 9
+    assert result["merkle"] == [
+        "60ac2b3835e24c3d5cff94f5254824a7d3027c3f23e1901a1e930c842d4b5628",
+        "8764c0a3919293bc1e2fa5581aea391945655cc7d3c7b056f7ba5db480dbfa53",
+        "e2f659d402a9f68562e1a8749a311376685ec5e926278fc42cb28fd78bdf926a",
+        "7fe731682ae6c58c660415bac4dfef396bb96ab5b63081fb068123171048f67f",
+        "69da00dcf94902a976c9b8c251e2f7945e88e473313e16e24a431468ac6120f2",
+        "d9b6af22bfd5169360455236c59dabd68dd78543675d4ebbf7e204872977f771",
+        "a655009282a889d0822552af1170a1ab3df5bb87116c18ed65aa0940312ec8b1",
+        "db64f664b1e36006570226c2c2981874695cea724a2109d94314e551cb7350ab",
+        "1fb3e35f4827c047bbe00d1d5fb796a207b501a32e097fcda5b014820886a105",
+        "361619de168be31ba0a5783dddd8fea1212c01e528abd84e3dd24e5d7c9f6a74",
+        "101bc9d619ba9f2c212eb25117c31f1895d32aaa4be4ad40d19a0c86177dfc1f",
+        "092106eef0be973d09ccf6348ea715b75fe550df64f04f6ef922a3923f4165d1"
     ]
 
 
