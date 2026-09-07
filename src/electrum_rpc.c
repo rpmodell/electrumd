@@ -1302,7 +1302,11 @@ int electrum_server_start(MempoolCache *mcp, BitcoinRpcCtx *btc_rpc_ctx, TXDB *d
     memset(&servaddr, 0, sizeof(servaddr));
 
     int opt = 1;
-    if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR | SO_REUSEPORT, &opt, sizeof(opt))) {
+    if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt))) {
+        logerrf("electrum rpc server: error: %s", strerror(errno));
+        return -1;
+    }
+    if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEPORT, &opt, sizeof(opt))) {
         logerrf("electrum rpc server: error: %s", strerror(errno));
         return -1;
     }
