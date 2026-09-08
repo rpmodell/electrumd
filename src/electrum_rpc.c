@@ -1330,9 +1330,13 @@ int electrum_server_start(MempoolCache *mcp, BitcoinRpcCtx *btc_rpc_ctx, TXDB *d
     len = sizeof(cli);
 
     nfds_t nfds = MAX_CLIENTS+1;
-    size_t i, clients_no = 0;
+    nfds_t i, clients_no = 0;
     struct pollfd fds[nfds];
-    memset(&fds, 0, sizeof(fds));
+    for (i = 0; i < nfds; i++) {
+        fds[i].events = 0;
+        fds[i].revents = 0;
+        fds[i].fd = -1;
+    }
 
     fds[0].fd = sockfd;
     fds[0].events = POLLIN | POLLPRI;
@@ -1345,8 +1349,8 @@ int electrum_server_start(MempoolCache *mcp, BitcoinRpcCtx *btc_rpc_ctx, TXDB *d
 
             if (clients_no <= MAX_CLIENTS) {
                 for (i = 1; i < nfds; i++) {
-                    if (fds[i].fd == 0) {
-                        if (client_add(i, connfd, ssl_ctx)) {
+                    if (fds[i].fd == -1) {
+                        if (client_add(i - 1, connfd, ssl_ctx)) {
                             loginfof("electrum rpc server: connection error %s:%d",
                                       inet_ntoa(cli.sin_addr),
                                       ntohs(cli.sin_port)
@@ -1354,6 +1358,7 @@ int electrum_server_start(MempoolCache *mcp, BitcoinRpcCtx *btc_rpc_ctx, TXDB *d
                         } else {
                             fds[i].fd = connfd;
                             fds[i].events = POLLIN | POLLHUP | POLLPRI;
+                            fds[i].revents = 0;
                             clients_no++;
 
                             loginfof("electrum rpc server: new connection: accept %s:%d",
@@ -1375,19 +1380,18 @@ int electrum_server_start(MempoolCache *mcp, BitcoinRpcCtx *btc_rpc_ctx, TXDB *d
             short revents = fds[i].revents;
             if (fds[i].fd > 0 && revents > 0) {
                 if (revents & POLLIN) {
-                    int error = handle_request(&clients[i], mcp, btc_rpc_ctx, dbptr, sync_thread_ctx);
-                    if (error == -1) {
+                    int error = handle_request(&clients[i - 1], mcp, btc_rpc_ctx, dbptr, sync_thread_ctx);
+                    if (error == -1)
                         revents = POLLERR;
-                    }
                 }
 
                 if ((revents & POLLERR) || (revents & POLLHUP)) {
                     //handle connection close
                     loginfof("electrum rpc server: connection removed");
-                    client_remove(i);
+                    client_remove(i - 1);
 
                     close(fds[i].fd);
-                    fds[i].fd = 0;
+                    fds[i].fd = -1;
                     fds[i].events = 0;
                     fds[i].revents = 0;
                     clients_no--;
