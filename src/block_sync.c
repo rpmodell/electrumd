@@ -467,50 +467,50 @@ void *btc_sync_thread_func(void *o)
     struct timespec twait;
 
     while (electrumd_running) {
+        pthread_mutex_lock(&arg->mutex);
+        while (!arg->syncing)
+            pthread_cond_wait(&arg->cond, &arg->mutex);
+	
         clock_gettime(CLOCK_REALTIME, &twait);
         twait.tv_sec += SYNC_THREAD_SECONDS;
-
-
-        pthread_mutex_lock(&arg->mutex);
-	while (!arg->syncing)
-		pthread_cond_wait(&arg->cond, &arg->mutex);
-	
         pthread_cond_timedwait(&arg->cond, &arg->mutex, &twait);
 
         if (!electrumd_running) {
             pthread_mutex_unlock(&arg->mutex);
             return NULL;
-	}
-
-        long prev_height, last_height;
-        prev_height = last_height = arg->dbptr->current_height;
-
-        HashesVec new_scripthashes;
-        hashes_vec_init(&new_scripthashes);
-
-        mempool_cache_update(arg->mc_ptr, arg->core_rpc_ctx, &new_scripthashes);
-        if (getblockcount(arg->core_rpc_ctx, &last_height)) {
-            logerrf("block sync: failed to fetch new height");
-            continue;
         }
 
-        if (last_height - prev_height) {
-            loginfof("block sync: new_height=%ld", last_height);
-            if (prefetch_blocks2(arg->core_rpc_ctx, arg->p2p_ctx, arg->dbptr, &new_scripthashes)) {
-                logerrf("block sync: block fetch update failed");
+        if (arg->syncing) {
+            long prev_height, last_height;
+            prev_height = last_height = arg->dbptr->current_height;
+
+            HashesVec new_scripthashes;
+            hashes_vec_init(&new_scripthashes);
+
+            mempool_cache_update(arg->mc_ptr, arg->core_rpc_ctx, &new_scripthashes);
+            if (getblockcount(arg->core_rpc_ctx, &last_height)) {
+                logerrf("block sync: failed to fetch new height");
                 continue;
             }
 
-            while (prev_height < last_height)
-                electrum_rpc_height_notify(arg->dbptr, (uint32_t) ++prev_height);
+            if (last_height - prev_height) {
+                loginfof("block sync: new_height=%ld", last_height);
+                if (prefetch_blocks2(arg->core_rpc_ctx, arg->p2p_ctx, arg->dbptr, &new_scripthashes)) {
+                    logerrf("block sync: block fetch update failed");
+                    continue;
+                }
+
+                while (prev_height < last_height)
+                    electrum_rpc_height_notify(arg->dbptr, (uint32_t) ++prev_height);
+            }
+
+            logdebugf("block sync: fetch new %ld scriphashes", new_scripthashes.size);
+
+            //notify for scripthash changes
+            electrum_rpc_new_scripthashes_notify(arg->dbptr, arg->mc_ptr, &new_scripthashes);
+
+            hashes_vec_free(&new_scripthashes);
         }
-
-        logdebugf("block sync: fetch new %ld scriphashes", new_scripthashes.size);
-
-        //notify for scripthash changes
-        electrum_rpc_new_scripthashes_notify(arg->dbptr, arg->mc_ptr, &new_scripthashes);
-
-        hashes_vec_free(&new_scripthashes);
         pthread_mutex_unlock(&arg->mutex);
     }
 
@@ -523,6 +523,7 @@ int sync_thread_start(SyncThreadCtx *sctx, BitcoinRpcCtx *btc_rpc_ctx, BtcP2pPro
     sctx->p2p_ctx = p2p_ctx;
     sctx->dbptr = dbptr;
     sctx->mc_ptr = mc_ptr;
+    sctx->syncing = 1;
 
     pthread_mutex_init(&sctx->mutex, NULL);
     pthread_cond_init(&sctx->cond, NULL);
