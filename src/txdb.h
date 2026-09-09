@@ -35,6 +35,8 @@
 #include <stdlib.h>
 #include <stdio.h>
 
+#include <pthread.h>
+
 #include <leveldb/c.h>
 
 #include "util.h"
@@ -71,6 +73,7 @@ struct dbi {
 typedef struct {
     char db_dir[512];
     long current_height;
+    pthread_mutex_t mutex;
     leveldb_env_t *db_env;
     struct dbi headers_ptr;
     struct dbi txins_ptr; // key txindex (outpoint hash prefix) hash first 8 bytes, value height
@@ -157,18 +160,6 @@ size_t txdb_lookup_utxos(TXDB *dbptr, const uint8_t *scripthash, Utxo **utxosp, 
 size_t txdb_history(TXDB *dbptr, uint8_t *scripthash, HistoryItem **historyp, size_t limit);
 
 /**
- * Retrieves a transaction hash of a specific block heght at a specific index.
- *
- * @param dbptr Pointer to a TXDB structure that will hold the database handle.
- * @param tx_hash pointer to the output hash, is caller responsability to preallocate 32 bytes
- *          of memory to hold the output.
- * @param height block height.
- * @param tx_index index of the transaction in the block.
- * @return 0 on success, non-zero error code on failure.
- */
-int txdb_lookup_txhash(TXDB *dbptr, uint8_t *tx_hash, uint32_t height, uint16_t tx_index);
-
-/**
  * Returns a vector containing all the transaction hashes of a block at a specific heght.
  *
  * @param dbptr Pointer to a TXDB structure that will hold the database handle.
@@ -180,17 +171,7 @@ int txdb_lookup_txhash(TXDB *dbptr, uint8_t *tx_hash, uint32_t height, uint16_t 
 int txdb_lookup_txhashes_at_height(TXDB *dbptr, HashesVec *hashes, uint32_t height);
 int txdb_store_block_header(TXDB *dbptr, const uint8_t *data, uint32_t height);
 int txdb_get_block_header(TXDB *dbptr, uint8_t *data, uint32_t height);
-int txdb_store_txs(TXDB *dbptr, BtcTx *txs, size_t txs_sz, uint32_t height);
+// int txdb_store_txs(TXDB *dbptr, BtcTx *txs, size_t txs_sz, uint32_t height);
 int txdb_bulk_store_txs(TXDB *dbptr, BtcTx *txs, size_t txs_sz, uint32_t height);
-
-
-/*
- * Test functions for database needs to be removed from header
- * file.
- */
-
-//int db_init_open(DB **dbp, const char *db_path);
-//int db_put(DB *dbp, const char *key, size_t key_sz, void *data, size_t data_sz);
-int db_get(struct dbi *dbp, const void *key, size_t key_sz, void *data_ptr, size_t data_sz);
 
 #endif

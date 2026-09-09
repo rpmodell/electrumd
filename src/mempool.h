@@ -30,6 +30,8 @@
 #ifndef __MEMPOOL_H__
 #define __MEMPOOL_H__
 
+#include <pthread.h>
+
 #include "bitcoin_common.h"
 #include "txdb.h"
 #include "bitcoin_rpc.h"
@@ -63,6 +65,7 @@ typedef struct {
 } MempoolTxInfo;
 
 typedef struct {
+    pthread_mutex_t mutex;
     long height;
     struct {
         struct mc_tx_entry *head;
@@ -77,7 +80,6 @@ void mempool_cache_init(MempoolCache *mc_ptr);
 void mempool_cache_print(MempoolCache *mc_ptr);
 int mempool_cache_update(MempoolCache *mc_ptr, BitcoinRpcCtx *btc_rpc_ctx, HashesVec *new_scripthashes);
 int mempool_cache_update2(MempoolCache *mc_ptr, BitcoinRpcCtx *btc_rpc_ctx, BtcP2pProtoCtx *p2p_ctx, HashesVec *new_scripthashes);
-int mempool_tx_has_unconf_inputs(MempoolCache *mc_ptr, BtcTx *tx);
 long mempool_tx_is_input(MempoolCache *mc_ptr, const uint8_t *txid);
 size_t mempool_lookup_utxos(MempoolCache *mc_ptr, const uint8_t *scripthash, Utxo **utxos);
 size_t mempool_lookup_txs(MempoolCache *mc_ptr, const uint8_t *scripthash, MempoolTxInfo **txinfos);

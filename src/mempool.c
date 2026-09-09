@@ -37,6 +37,10 @@
 
 #include "mempool.h"
 
+#define MC_LOCK(MCP) pthread_mutex_lock(&((MCP)->mutex))
+
+#define MC_UNLOCK(MCP) pthread_mutex_unlock(&((MCP)->mutex))
+
 #define FEE_HIST_BIN_SIZE 25000.0
 
 int fee_hist_rev_sort_comp(const void *a, const void *b)
@@ -125,6 +129,8 @@ void mempool_cache_init(MempoolCache *mcp)
     mcp->tx_cache.size = 0;
 
 	fee_histogram_init(&mcp->fee_histogram, 100);
+
+    pthread_mutex_init(&mcp->mutex, NULL);
 }
 
 void mempool_cache_print(MempoolCache *mc_ptr)
@@ -140,27 +146,37 @@ void mempool_cache_print(MempoolCache *mc_ptr)
 
 long mempool_tx_is_input(MempoolCache *mc_ptr, const uint8_t *txid_prefix)
 {
+    int ret = 0;
     size_t itx;
     struct mc_tx_entry *e = NULL;
+
+    MC_LOCK(mc_ptr);
     for (e = mc_ptr->tx_cache.head; e; e = e->next) {
         for (itx = 0; itx < e->tx.tx_in_count; itx++) {
-            if (memcmp(e->tx.tx_in[itx].prev_out_hash, txid_prefix, 8) == 0)
-                return 1;
+            if (memcmp(e->tx.tx_in[itx].prev_out_hash, txid_prefix, 8) == 0) {
+                ret = 1;
+                goto is_input_end;
+            }
         }
     }
-	return 0;
+
+is_input_end:
+    MC_UNLOCK(mc_ptr);
+    return ret;
 }
 
-int mempool_tx_has_unconf_inputs(MempoolCache *mcp, BtcTx *tx)
+static int mempool_tx_has_unconf_inputs(MempoolCache *mcp, BtcTx *tx)
 {
     size_t i;
     struct mc_tx_entry *e = NULL;
+
     for (i = 0; i < tx->tx_in_count; i++) {
         for (e = mcp->tx_cache.head; e; e = e->next) {
             if (memcmp(e->tx.txid, tx->tx_in[i].prev_out_hash, 32) == 0)
                 return 1;
         }
     }
+
     return 0;
 }
 
@@ -170,9 +186,10 @@ size_t mempool_lookup_utxos(MempoolCache *mc_ptr, const uint8_t *scripthash, Utx
     size_t outs_sz = 0, outs_capacity = 64;
     (*utxos) = (Utxo*) malloc(outs_capacity * sizeof(Utxo));
 
-
     size_t itx;
     struct mc_tx_entry *e = NULL;
+
+    MC_LOCK(mc_ptr);
     for (e = mc_ptr->tx_cache.head; e; e = e->next) {
         for (itx = 0; itx < e->tx.tx_out_count; itx++) {
             if (memcmp(e->tx.tx_out[itx].pk_script_hash, scripthash, 32) == 0) {
@@ -191,15 +208,20 @@ size_t mempool_lookup_utxos(MempoolCache *mc_ptr, const uint8_t *scripthash, Utx
             }
         }
 	}
+    MC_UNLOCK(mc_ptr);
+
 	return outs_sz;
 }
 
 size_t mempool_lookup_txs(MempoolCache *mc_ptr, const uint8_t *scripthash, MempoolTxInfo **txinfos)
 {
-    if (!mc_ptr->tx_cache.head)
-        return 0;
-
     size_t outs_sz = 0, outs_capacity = 64;
+
+    MC_LOCK(mc_ptr);
+    if (!mc_ptr->tx_cache.head) {
+        goto lookup_txs_end;
+    }
+
     (*txinfos) = (MempoolTxInfo*) malloc(outs_capacity * sizeof(MempoolTxInfo));
     size_t itx;
     struct mc_tx_entry *e = NULL;
@@ -219,6 +241,9 @@ size_t mempool_lookup_txs(MempoolCache *mc_ptr, const uint8_t *scripthash, Mempo
             }
         }
     }
+
+lookup_txs_end:
+    MC_UNLOCK(mc_ptr);
     return outs_sz;
 }
 
@@ -233,7 +258,7 @@ struct mc_tx_entry *tx_cache_find_txid(MempoolCache *mcp, const uint8_t *txid)
     return NULL;
 }
 
-struct mc_tx_entry *tx_cache_put(MempoolCache *mcp, BtcTx tx)
+static struct mc_tx_entry *tx_cache_put(MempoolCache *mcp, BtcTx tx)
 {
     // struct mc_tx_entry *e = NULL;
     // for (e = mcp->tx_cache.head; e; e = e->next) {
@@ -296,7 +321,11 @@ int mempool_cache_update(MempoolCache *mcp, BitcoinRpcCtx *btc_rpc_ctx, HashesVe
 
     // Discard txs not in mempool from bitcoin daemon, keep the others
     ssize_t i, j, rawtx_sz;
+
+    MC_LOCK(mcp);
     struct mc_tx_entry *e = mcp->tx_cache.head;
+
+    // Remove transactions no longer in mempool
     while (e) {
         if (hashes_vec_find(&new_txs_hashes, e->tx.txid) == -1)
             e = tx_cache_remove(mcp, e);
@@ -306,6 +335,13 @@ int mempool_cache_update(MempoolCache *mcp, BitcoinRpcCtx *btc_rpc_ctx, HashesVe
         else
             break;
     }
+
+    for (i = new_txs_hashes.size - 1; i >= 0; i--) {
+        if (tx_cache_find_txid(mcp, new_txs_hashes.v[i]))
+            hashes_vec_remove(&new_txs_hashes, i);
+    }
+
+    MC_UNLOCK(mcp);
 
     int ret = 0;
 
@@ -318,9 +354,6 @@ int mempool_cache_update(MempoolCache *mcp, BitcoinRpcCtx *btc_rpc_ctx, HashesVe
 
     new_count = 0;
     for (i = 0; i < new_txs_hashes.size; i++) {
-        if (tx_cache_find_txid(mcp, new_txs_hashes.v[i]))
-            continue;
-
         bytes_to_hex_reverse(new_txs_hashes.v[i], 32, txid_str);
         if ((ret = getmempoolentry(btc_rpc_ctx, txid_str, &mpe))) {
             logerrf("failed getmempool entry");
@@ -349,18 +382,21 @@ int mempool_cache_update(MempoolCache *mcp, BitcoinRpcCtx *btc_rpc_ctx, HashesVe
             }
         }
 
+        MC_LOCK(mcp);
         e = tx_cache_put(mcp, tx);
         e->fee = SATS(mpe.fee_base);
         e->loc = i;
         e->vsize = mpe.vsize;
+        MC_UNLOCK(mcp);
 
         new_count++;
     }
 
 	FeeHistogram mp_hist;
-	fee_histogram_init(&mp_hist, 100 + new_count);
-
     int64_t fee_rate = 0;
+
+    MC_LOCK(mcp);
+	fee_histogram_init(&mp_hist, 100 + new_count);
     //next construct the full fee histogram
     for (e = mcp->tx_cache.head; e; e = e->next) {
         fee_rate = (int64_t) (floor(e->fee / e->vsize * 10.0) / 10.0);
@@ -368,7 +404,8 @@ int mempool_cache_update(MempoolCache *mcp, BitcoinRpcCtx *btc_rpc_ctx, HashesVe
     }
 
 	fee_histogram_compact(&mcp->fee_histogram, &mp_hist);
-	fee_histogram_free(&mp_hist);
+    fee_histogram_free(&mp_hist);
+    MC_UNLOCK(mcp);
 
     loginfof("mempool cache: fetched new %ld mempool transactions, current mempool size is %ld", new_count, mcp->tx_cache.size);
 

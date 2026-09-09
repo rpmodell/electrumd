@@ -50,6 +50,10 @@
 
 #define DB_MAX_FILE_SIZE (16*1024*1024) //16mb
 #define DB_DEFAULT_BLK_SIZE (8*1024) //4kb
+
+#define TXDB_LOCK(DB) pthread_mutex_lock(&((DB)->mutex))
+#define TXDB_UNLOCK(DB) pthread_mutex_unlock(&((DB)->mutex))
+
 #define HASHES_INDEX_SEEK(H) (H * sizeof(struct tx_offset))
 
 #define HEADERS_DB_FILE_NAME "headers.db"
@@ -249,11 +253,15 @@ int txdb_open(TXDB *dbptr, const char *db_dir, unsigned int cache_size, long sta
         return -1;
 
     strcpy(dbptr->db_dir, db_dir);
+
+    pthread_mutex_init(&dbptr->mutex, NULL);
 	return 0;
 }
 
 int txdb_compact(TXDB *dbptr)
 {
+    TXDB_LOCK(dbptr);
+
     logdebugf("txdb: compaction %s", TXOUTS_DB_FILE_NAME);
     leveldb_compact_range(dbptr->txouts_ptr.db, NULL, 0, NULL, 0);
 
@@ -262,6 +270,8 @@ int txdb_compact(TXDB *dbptr)
 
     logdebugf("txdb: compaction %s", HEADERS_DB_FILE_NAME);
     leveldb_compact_range(dbptr->headers_ptr.db, NULL, 0, NULL, 0);
+
+    TXDB_UNLOCK(dbptr);
     return 0;
 }
 
@@ -311,37 +321,47 @@ int txdb_close(TXDB *dbptr)
 	if (dbptr->hashesdb.cache)
 		free(dbptr->hashesdb.cache);
 
+    pthread_mutex_destroy(&dbptr->mutex);
 	return 0;
 }
 
 size_t txdb_flush(TXDB *dbptr)
 {
+    TXDB_LOCK(dbptr);
 
     FILE *status_fp = NULL;
     char db_path[1024];
+    int ret = 0;
 
     if (fflush(dbptr->hashesdb.index_fp)) {
         logerrf("txdb error closing %s (index) db", TXHASHES_DB_FILE_NAME);
-	return -1;   
+        ret = -1;
+        goto flush_end;
     }
     if (fflush(dbptr->hashesdb.data_fp)) {
         logerrf("txdb error closing %s (data) db", TXHASHES_DB_FILE_NAME);
-	return -1;   
+        ret = -1;
+        goto flush_end;
     }
 
     sprintf(db_path, "%s/%s", dbptr->db_dir, STATUS_FILE_NAME);
     status_fp = fopen(db_path, "wb");
     if (!status_fp) {
         logerrf("txdb open: %s: %s", STATUS_FILE_NAME, strerror(errno));
+        ret = -1;
+        goto flush_end;
     }
     if (fwrite(&dbptr->current_height, sizeof(long), 1, status_fp) != 1) {
         logerrf("txdb open: %s: cant write current height", STATUS_FILE_NAME);
-        fclose(status_fp);
-        return -1;
+        ret = -1;
+        goto flush_end;
     }
 
-    fclose(status_fp);
-	return 0;
+flush_end:
+    if (status_fp)
+        fclose(status_fp);
+    TXDB_UNLOCK(dbptr);
+    return ret;
 }
 
 // DB put / get
@@ -350,11 +370,11 @@ static int db_put(struct dbi *db, void *key, size_t key_sz, void *dp, size_t dat
 	char *err = NULL;
 	leveldb_put(db->db, db->wopts, (char*) key, key_sz, (char*) dp, data_sz, &err);
 
-    	if (err) {
+    if (err) {
 		logerrf("db put error %s", err);
 		leveldb_free(err); 
 		return -1;
-    	}
+    }
     
 	return 0;
 }
@@ -366,7 +386,7 @@ int db_get(struct dbi *db, const void *key, size_t key_sz, void *data_ptr, size_
 	char *read_ptr = leveldb_get(db->db, db->ropts, (char*) key, key_sz, &read_sz, &err);
 
 	//FIXME specify errors!
-    	if (err) {
+    if (err) {
 		logerrf("db get error %s", err);
 		leveldb_free(err); 
 		return -1;
@@ -384,8 +404,8 @@ int db_get(struct dbi *db, const void *key, size_t key_sz, void *data_ptr, size_
 	if (data_ptr)
 		memcpy(data_ptr, read_ptr, data_sz);
     
-    	leveldb_free(read_ptr);
-    	return 0;
+    leveldb_free(read_ptr);
+    return 0;
 }
 
 static int hashesdb_put(TXDB *db, uint32_t height, uint16_t count, uint8_t *data, size_t size)
@@ -495,6 +515,41 @@ static int txdb_get_txin(TXDB *dbptr, uint8_t *txid_prefix, uint16_t prev_out_in
     return db_get(&dbptr->txins_ptr, &txink, sizeof(txink), in_dbt, sizeof(struct txin_dbt));
 }
 
+static int txdb_lookup_txhash(TXDB *dbptr, uint8_t *tx_hash, uint32_t height, uint16_t tx_index)
+{
+    if (height > dbptr->current_height)
+        return -1;
+
+    if (hashesdb_cache_get(dbptr, height, tx_index, tx_hash) == 0)
+        return 0;
+
+    struct tx_offset of;
+    if (fseeko(dbptr->hashesdb.index_fp, HASHES_INDEX_SEEK(height), SEEK_SET)) {
+        logerrf("txdb error reading index of txhash %d at height %d: %s", tx_index, height, strerror(errno));
+        return -1;
+    }
+    if (fread(&of, sizeof(of), 1, dbptr->hashesdb.index_fp) != 1) {
+        logerrf("txdb error reading index of txhash %d at height %d: %s", tx_index, height, strerror(errno));
+        return -1;
+    }
+    if (tx_index >= of.tx_count) {
+        logerrf("txdb error tx index out of range: %d at height %d: %s", tx_index, height, strerror(errno));
+        return -1;
+    }
+
+    if (fseeko(dbptr->hashesdb.data_fp, of.offset + tx_index * 32, SEEK_SET)) {
+        logerrf("txdb error reading txhash %d at height %d: %s", tx_index, height, strerror(errno));
+        return -1;
+    }
+    if (fread(tx_hash, 1, 32, dbptr->hashesdb.data_fp) != 32) {
+        logerrf("txdb error reading txhash %d at height %d: %s", tx_index, height, strerror(errno));
+        return -1;
+    }
+
+    hashesdb_cache_put(dbptr, height, tx_index, tx_hash);
+    return 0;
+}
+
 size_t txdb_lookup_utxos(TXDB *dbptr, const uint8_t *scripthash, Utxo **utxosp, int mode)
 {
 	int ret = 0;
@@ -505,10 +560,13 @@ size_t txdb_lookup_utxos(TXDB *dbptr, const uint8_t *scripthash, Utxo **utxosp, 
     seek_key.height = 0;
     memcpy(seek_key.scripthash_prefix, scripthash, 8);
 
+    TXDB_LOCK(dbptr);
+
     leveldb_iterator_t *iter = create_iterator_at(&dbptr->txouts_ptr, &seek_key, sizeof(seek_key));
     if (!iter) {
         logdebugf("utxo cannot be found %ul", *((uint64_t*)scripthash));
-        return 0; //notfound
+        utxo_sz = 0;
+        goto lookup_utxos_end;
     }
 
 	char *data = NULL;
@@ -556,9 +614,11 @@ size_t txdb_lookup_utxos(TXDB *dbptr, const uint8_t *scripthash, Utxo **utxosp, 
 
     if (ret) {
         logerrf("txdb utxo lookup error %d", ret);
-        return 0;
+        utxo_sz = 0;
     }
 
+lookup_utxos_end:
+    TXDB_UNLOCK(dbptr);
 	return utxo_sz;
 }
 
@@ -583,10 +643,13 @@ size_t txdb_history(TXDB *dbptr, uint8_t *scripthash, HistoryItem **historyp, si
     seek_key.height = 0;
     memcpy(seek_key.scripthash_prefix, scripthash, 8);
 
+    TXDB_LOCK(dbptr);
+
     leveldb_iterator_t *iter = create_iterator_at(&dbptr->txouts_ptr, &seek_key, sizeof(seek_key));
     if (!iter) {
         logdebugf("utxo cannot be found %ul", *((uint64_t*)scripthash));
-        return 0; //notfound
+        hist_sz = 0;
+        goto history_end;
     }
 
 	char *data = NULL;
@@ -652,72 +715,47 @@ size_t txdb_history(TXDB *dbptr, uint8_t *scripthash, HistoryItem **historyp, si
 
     if (ret) {
         logerrf("txdb history error %d", ret);
-        return 0;
+        hist_sz = 0;
+        goto history_end;
     }
 
 	// sorts the result in blockchain order
     if (hist_sz)
 		qsort(*historyp, hist_sz, sizeof(HistoryItem), &history_item_comp);
 
+history_end:
+    TXDB_UNLOCK(dbptr);
     return hist_sz;
-}
-
-int txdb_lookup_txhash(TXDB *dbptr, uint8_t *tx_hash, uint32_t height, uint16_t tx_index)
-{
-	if (height > dbptr->current_height)
-		return -1;
-	
-	if (hashesdb_cache_get(dbptr, height, tx_index, tx_hash) == 0)
-		return 0;
-
-    	struct tx_offset of;
-    	if (fseeko(dbptr->hashesdb.index_fp, HASHES_INDEX_SEEK(height), SEEK_SET)) {
-		logerrf("txdb error reading index of txhash %d at height %d: %s", tx_index, height, strerror(errno));
-		return -1;
-	}
-    	if (fread(&of, sizeof(of), 1, dbptr->hashesdb.index_fp) != 1) {
-		logerrf("txdb error reading index of txhash %d at height %d: %s", tx_index, height, strerror(errno));
-		return -1;
-	}
-	if (tx_index >= of.tx_count) {
-		logerrf("txdb error tx index out of range: %d at height %d: %s", tx_index, height, strerror(errno));
-		return -1;
-	}
-
-    	if (fseeko(dbptr->hashesdb.data_fp, of.offset + tx_index * 32, SEEK_SET)) {
-		logerrf("txdb error reading txhash %d at height %d: %s", tx_index, height, strerror(errno));
-		return -1;
-	}
-	if (fread(tx_hash, 1, 32, dbptr->hashesdb.data_fp) != 32) {
-		logerrf("txdb error reading txhash %d at height %d: %s", tx_index, height, strerror(errno));
-		return -1;
-	}
-
-	hashesdb_cache_put(dbptr, height, tx_index, tx_hash);
-	return 0;
 }
 
 int txdb_lookup_txhashes_at_height(TXDB *dbptr, HashesVec *hashes, uint32_t height)
 {
-	if (height > dbptr->current_height)
-		return -1;
+    int ret = 0;
+    TXDB_LOCK(dbptr);
+
+    if (height > dbptr->current_height) {
+        ret = -1;
+        goto lookup_txhashes_end;
+    }
 
 	ssize_t data_offs; 
-    	struct tx_offset of;
-    	if (fseeko(dbptr->hashesdb.index_fp, HASHES_INDEX_SEEK(height), SEEK_SET)) {
+    struct tx_offset of;
+    if (fseeko(dbptr->hashesdb.index_fp, HASHES_INDEX_SEEK(height), SEEK_SET)) {
 		logerrf("txdb error reading txhash indexes at height %d: %s", height, strerror(errno));
-		return -1;
+        ret = -1;
+        goto lookup_txhashes_end;
 	}
-    	if (fread(&of, sizeof(of), 1, dbptr->hashesdb.index_fp) != 1) {
+    if (fread(&of, sizeof(of), 1, dbptr->hashesdb.index_fp) != 1) {
 		logerrf("txdb error reading txhash indexes at height %d: %s", height, strerror(errno));
-		return -1;
+        ret = -1;
+        goto lookup_txhashes_end;
 	}
 
 	data_offs = ftello(dbptr->hashesdb.data_fp);	
 
-    	uint16_t i;
+    uint16_t i;
 	uint8_t tx_hash[32];
-    	for (i = 0; i < of.tx_count; i++) {
+    for (i = 0; i < of.tx_count; i++) {
 		if (hashesdb_cache_get(dbptr, height, i, tx_hash)) {
 			/* 
 			 * If the txid is not in cache then seek at offset position, retrieve the
@@ -726,118 +764,134 @@ int txdb_lookup_txhashes_at_height(TXDB *dbptr, HashesVec *hashes, uint32_t heig
 			
 			if (data_offs != of.offset && fseeko(dbptr->hashesdb.data_fp, of.offset, SEEK_SET)) {
 				logerrf("txdb error reading txhashes at height %d: %s", height, strerror(errno));
-				return -1;
+                ret = -1;
+                goto lookup_txhashes_end;
 			}		
 
 			if (fread(tx_hash, 1, 32, dbptr->hashesdb.data_fp) != 32) {
 				logerrf("txdb error reading txhashes at height %d: %s", height, strerror(errno));
-				return -1;	
+                ret = -1;
+                goto lookup_txhashes_end;
 			}
 
 			data_offs = of.offset;
 			hashesdb_cache_put(dbptr, height, i, tx_hash);
 		}
 		
-        	hashes_vec_add(hashes, (uint8_t*) tx_hash);
-    	}
+        hashes_vec_add(hashes, (uint8_t*) tx_hash);
+    }
 	
 	// not found tx at index 0 this means that this height does not exists! NOTE this should never happen!
-    	if (hashes->size == 0)
-		return -1;
+    if (hashes->size == 0) {
+        ret = -1;
+        goto lookup_txhashes_end;
+    }
 
-    	return 0;
+lookup_txhashes_end:
+    TXDB_UNLOCK(dbptr);
+    return ret;
 }
 
 int txdb_store_block_header(TXDB *dbptr, const uint8_t *data, uint32_t height)
 {
-    return db_put(&dbptr->headers_ptr, &height, sizeof(height), (uint8_t*) data, BLOCK_HEADER_SIZE);
+    int ret = 0;
+    TXDB_LOCK(dbptr);
+    ret = db_put(&dbptr->headers_ptr, &height, sizeof(height), (uint8_t*) data, BLOCK_HEADER_SIZE);
+    TXDB_UNLOCK(dbptr);
+    return ret;
 }
 
 int txdb_get_block_header(TXDB *dbptr, uint8_t *header, uint32_t height)
 {
-	if (height > dbptr->current_height)
-		return -1;
-		
-    return db_get(&dbptr->headers_ptr, &height, sizeof(height), header, BLOCK_HEADER_SIZE);
-}
+    int ret = -1;
 
-int txdb_store_txs(TXDB *dbptr, BtcTx *txs, size_t txs_sz, uint32_t height)
-{
-    int ret = 0;
-    size_t itx, i;
-    
-    struct utxo_key ukey;
-    struct utxo_dbt udbt;
-    
-    struct txin_key in_key;
-    struct txin_dbt in_dbt;
-    for (itx = 0; itx < txs_sz; itx++) {
-        assert(itx < USHRT_MAX);
-
-        if (itx > 0) {
-            /* We do not store coinbase tx inputs because a coinbase tx has dummy inputs */
-            for (i = 0; i < txs[itx].tx_in_count; i++) {
-                assert(txs[itx].tx_in[i].prev_out_index < USHRT_MAX);
-                
-                memcpy(in_key.txid_prefix, txs[itx].tx_in[i].prev_out_hash, sizeof(in_key.txid_prefix));
-                in_key.prev_out_index = (uint16_t) txs[itx].tx_in[i].prev_out_index;
-
-                memset(&in_dbt, 0, sizeof(struct txin_dbt));
-                in_dbt.height = height;
-                in_dbt.tx_index = (uint16_t) itx;
-
-                if ((ret = db_put(&dbptr->txins_ptr, &in_key, sizeof(in_key), &in_dbt, sizeof(in_dbt)))) {
-                    logerrf("txdb: error storing txins");
-                    return ret;
-                }
-            }
-        }
+    TXDB_LOCK(dbptr);
+    if (height <= dbptr->current_height) {
+        ret = db_get(&dbptr->headers_ptr, &height, sizeof(height), header, BLOCK_HEADER_SIZE);
     }
-    
-    for (itx = 0; itx < txs_sz; itx++) {
-		for (i = 0; i < txs[itx].tx_out_count; i++) {
-            if (IS_SCRIPT_OP_RETURN(txs[itx].tx_out[i].pk_script, txs[itx].tx_out[i].pk_script_len))
-                continue;
 
-            assert(i < USHRT_MAX);
-            
-            memcpy(ukey.scripthash_prefix, txs[itx].tx_out[i].pk_script_hash, sizeof(ukey.scripthash_prefix));
-            ukey.height = 0;
-            
-            // store the zero scripthash key, this is used as a seek start point, empty value
-            if ((ret = db_put(&dbptr->txouts_ptr, &ukey, sizeof(ukey), "", 0))) {
-                logerrf("txdb: error storing txouts");
-                return ret;
-            }
-
-            ukey.height = height;
-
-            memset(&udbt, 0, sizeof(struct utxo_dbt));
-            udbt.value = txs[itx].tx_out[i].value;
-            udbt.tx_pos = (uint16_t) i;
-            udbt.tx_index = (uint16_t) itx;
-
-            if (txs[itx].tx_out[i].pk_script_len > 0) {
-                if ((ret = db_put(&dbptr->txouts_ptr, &ukey, sizeof(ukey), &udbt, sizeof(udbt)))) {
-                    logerrf("txdb: error storing txouts");
-                    return ret;
-                }
-            }
-        }
-	}
-
-    uint8_t *hashes_buf = (uint8_t*) malloc(txs_sz * 32 * sizeof(uint8_t));
-    for (itx = 0; itx < txs_sz; itx++) {
-        memcpy(hashes_buf + (i * 32), txs[itx].txid, 32);
-	}
-
-    ret = hashesdb_put(dbptr, height, txs_sz, hashes_buf, txs_sz * 32 * sizeof(uint8_t));
-    free(hashes_buf);
+    TXDB_UNLOCK(dbptr);
     return ret;
 }
 
+// int txdb_store_txs(TXDB *dbptr, BtcTx *txs, size_t txs_sz, uint32_t height)
+// {
+//     int ret = 0;
+//     size_t itx, i;
+    
+//     struct utxo_key ukey;
+//     struct utxo_dbt udbt;
+    
+//     struct txin_key in_key;
+//     struct txin_dbt in_dbt;
+//     for (itx = 0; itx < txs_sz; itx++) {
+//         assert(itx < USHRT_MAX);
+
+//         if (itx > 0) {
+//             /* We do not store coinbase tx inputs because a coinbase tx has dummy inputs */
+//             for (i = 0; i < txs[itx].tx_in_count; i++) {
+//                 assert(txs[itx].tx_in[i].prev_out_index < USHRT_MAX);
+                
+//                 memcpy(in_key.txid_prefix, txs[itx].tx_in[i].prev_out_hash, sizeof(in_key.txid_prefix));
+//                 in_key.prev_out_index = (uint16_t) txs[itx].tx_in[i].prev_out_index;
+
+//                 memset(&in_dbt, 0, sizeof(struct txin_dbt));
+//                 in_dbt.height = height;
+//                 in_dbt.tx_index = (uint16_t) itx;
+
+//                 if ((ret = db_put(&dbptr->txins_ptr, &in_key, sizeof(in_key), &in_dbt, sizeof(in_dbt)))) {
+//                     logerrf("txdb: error storing txins");
+//                     return ret;
+//                 }
+//             }
+//         }
+//     }
+    
+//     for (itx = 0; itx < txs_sz; itx++) {
+// 		for (i = 0; i < txs[itx].tx_out_count; i++) {
+//             if (IS_SCRIPT_OP_RETURN(txs[itx].tx_out[i].pk_script, txs[itx].tx_out[i].pk_script_len))
+//                 continue;
+
+//             assert(i < USHRT_MAX);
+            
+//             memcpy(ukey.scripthash_prefix, txs[itx].tx_out[i].pk_script_hash, sizeof(ukey.scripthash_prefix));
+//             ukey.height = 0;
+            
+//             // store the zero scripthash key, this is used as a seek start point, empty value
+//             if ((ret = db_put(&dbptr->txouts_ptr, &ukey, sizeof(ukey), "", 0))) {
+//                 logerrf("txdb: error storing txouts");
+//                 return ret;
+//             }
+
+//             ukey.height = height;
+
+//             memset(&udbt, 0, sizeof(struct utxo_dbt));
+//             udbt.value = txs[itx].tx_out[i].value;
+//             udbt.tx_pos = (uint16_t) i;
+//             udbt.tx_index = (uint16_t) itx;
+
+//             if (txs[itx].tx_out[i].pk_script_len > 0) {
+//                 if ((ret = db_put(&dbptr->txouts_ptr, &ukey, sizeof(ukey), &udbt, sizeof(udbt)))) {
+//                     logerrf("txdb: error storing txouts");
+//                     return ret;
+//                 }
+//             }
+//         }
+// 	}
+
+//     uint8_t *hashes_buf = (uint8_t*) malloc(txs_sz * 32 * sizeof(uint8_t));
+//     for (itx = 0; itx < txs_sz; itx++) {
+//         memcpy(hashes_buf + (i * 32), txs[itx].txid, 32);
+// 	}
+
+//     ret = hashesdb_put(dbptr, height, txs_sz, hashes_buf, txs_sz * 32 * sizeof(uint8_t));
+//     free(hashes_buf);
+//     return ret;
+// }
+
 int txdb_bulk_store_txs(TXDB *dbptr, BtcTx *txs, size_t txs_sz, uint32_t height)
 {
+    int ret = 0;
     size_t itx, i;
 
     char *err = NULL;
@@ -847,8 +901,9 @@ int txdb_bulk_store_txs(TXDB *dbptr, BtcTx *txs, size_t txs_sz, uint32_t height)
     struct txin_key in_key;
     struct txin_dbt in_dbt;
 
-    leveldb_writebatch_t* batch = NULL;
-    batch = leveldb_writebatch_create();
+    TXDB_LOCK(dbptr);
+
+    leveldb_writebatch_t* batch = leveldb_writebatch_create();
     for (itx = 0; itx < txs_sz; itx++) {
         assert(itx < USHRT_MAX);
 
@@ -874,7 +929,8 @@ int txdb_bulk_store_txs(TXDB *dbptr, BtcTx *txs, size_t txs_sz, uint32_t height)
     	leveldb_writebatch_destroy(batch);
         logerrf("txdb: bulk store txins error %s", err);
         leveldb_free(err);
-        return -1;
+        ret = -1;
+        goto store_txs_end;
     }
 
     leveldb_writebatch_destroy(batch);
@@ -909,7 +965,8 @@ int txdb_bulk_store_txs(TXDB *dbptr, BtcTx *txs, size_t txs_sz, uint32_t height)
     	leveldb_writebatch_destroy(batch);
         logerrf("txdb: bulk store txouts error %s", err);
         leveldb_free(err);
-        return -1;
+        ret = -1;
+        goto store_txs_end;
     }
 
     leveldb_writebatch_destroy(batch);
@@ -923,8 +980,12 @@ int txdb_bulk_store_txs(TXDB *dbptr, BtcTx *txs, size_t txs_sz, uint32_t height)
     if (hashesdb_put(dbptr, height, txs_sz, hashes_buf, txs_sz * 32 * sizeof(uint8_t))) {
          logerrf("txdb: error storing txhashes");
          free(hashes_buf);
-	 	return -1;
+         ret = -1;
+         goto store_txs_end;
     }
     free(hashes_buf);
-    return 0;
+
+store_txs_end:
+    TXDB_UNLOCK(dbptr);
+    return ret;
 }

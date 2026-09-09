@@ -67,7 +67,7 @@ ssize_t hashes_vec_add(HashesVec *vec, uint8_t *hash)
 
 ssize_t hashes_vec_insert(HashesVec *vec, ssize_t index, uint8_t *hash)
 {
-    if (hash && index < vec->size) {
+    if (hash && index < vec->size && index >= 0) {
         memcpy(vec->v[index], hash, 32);
         return index;
     }
@@ -88,19 +88,18 @@ ssize_t hashes_vec_find(HashesVec *vec, uint8_t *hash)
 
 int hashes_vec_remove(HashesVec *vec, ssize_t index)
 {
-    if (index <= vec->size) {
-        free(vec->v[index]);
-        vec->v[index] = NULL;
-        vec->size--;
+    if (index >= vec->size || index < 0)
+        return -1;
 
-        long i;
-        for (i = index; i < vec->size; i++)
-            vec->v[i] = vec->v[i+1];
+    free(vec->v[index]);
+    vec->v[index] = NULL;
+    vec->size--;
 
-        return 0;
-    }
+    ssize_t i;
+    for (i = index; i < vec->size; i++)
+        vec->v[i] = vec->v[i+1];
 
-    return -1;
+    return 0;
 }
 
 void hashes_vec_free(HashesVec *vec)

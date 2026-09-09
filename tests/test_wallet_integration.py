@@ -183,6 +183,7 @@ def test_wallet_integration(request):
                       ['payto', new_addr, '123', '--fee', '0.001', '--password=']  # problem with password=""
                       )
 
+    print("[*] Broadcast TX")
     tx_id = electrum(electrum_path, electrum_data_dir, ['broadcast', raw_tx])
 
     json_result = json.loads(electrum(electrum_path, electrum_data_dir, ['get_tx_status', tx_id]))

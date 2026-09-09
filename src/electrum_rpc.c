@@ -175,16 +175,12 @@ int blockchain_block_header(MempoolCache *mc_ptr, BitcoinRpcCtx *btc_rpc_ctx, TX
         return JSONRPC_INVALID_PARAMS;
     }
 
-    int ret = JSONRPC_OK;
     long height = height_param->e.int_value;
 
     uint8_t header[BLOCK_HEADER_SIZE];
     char headerstr[(BLOCK_HEADER_SIZE * 2) + 1];
 
-    sync_thread_set_syncing(sync_thread_ctx, 0);
-    ret = txdb_get_block_header(dbptr, header, height);
-    sync_thread_set_syncing(sync_thread_ctx, 1);
-    if (ret)
+    if (txdb_get_block_header(dbptr, header, height))
         return JSONRPC_INTERNAL_ERROR;
 
     bytes_to_hex(header, BLOCK_HEADER_SIZE, headerstr);
@@ -233,7 +229,6 @@ int blockchain_block_headers(MempoolCache *mc_ptr, BitcoinRpcCtx *btc_rpc_ctx, T
     uint8_t header[BLOCK_HEADER_SIZE];
     long i;
 	
-    sync_thread_set_syncing(sync_thread_ctx, 0);
     for (i = 0; i < count; i++) {
         if (txdb_get_block_header(dbptr, header, height + i)) {
             ret = JSONRPC_INTERNAL_ERROR;
@@ -251,7 +246,6 @@ int blockchain_block_headers(MempoolCache *mc_ptr, BitcoinRpcCtx *btc_rpc_ctx, T
     jsonobj_put_int(response, "max", MAX_RET_HEADERS);
 
 blockchain_block_headers_end:
-    sync_thread_set_syncing(sync_thread_ctx, 1);
     free(headers);
 
     return ret;
@@ -306,8 +300,6 @@ int blockchain_scripthash_getbalance(MempoolCache *mc_ptr, BitcoinRpcCtx *btc_rp
         return JSONRPC_INVALID_PARAMS;
     }
 
-    sync_thread_set_syncing(sync_thread_ctx, 0);
-
     char hs[65];
     bytes_to_hex(scripthash, 32, hs);
 
@@ -350,7 +342,6 @@ int blockchain_scripthash_getbalance(MempoolCache *mc_ptr, BitcoinRpcCtx *btc_rp
     jsonobj_put_int(response, "confirmed", confirmed);
     jsonobj_put_int(response, "unconfirmed", unconfirmed);
 	
-    sync_thread_set_syncing(sync_thread_ctx, 1);
     return JSONRPC_OK;
 }
 
@@ -429,16 +420,11 @@ int blockchain_scripthash_gethistory(MempoolCache *mc_ptr, BitcoinRpcCtx *btc_rp
 	 * ]
 	 */
 	
-
-    sync_thread_set_syncing(sync_thread_ctx, 0);
-    int ret = scripthash_history(mc_ptr, dbptr, response, scripthash, 1);
-    sync_thread_set_syncing(sync_thread_ctx, 1);
-    return ret;
+    return scripthash_history(mc_ptr, dbptr, response, scripthash, 1);;
 }
 
 int blockchain_scripthash_getmempool(MempoolCache *mc_ptr, BitcoinRpcCtx *btc_rpc_ctx, TXDB *dbptr, SyncThreadCtx *sync_thread_ctx, jsonobj *params, jsonobj *response, struct client *client)
 {
-	
     jsonobj *scripthash_param = jsonobj_list_get_at(params, 0);
     if (!scripthash_param || !JSONOBJ_IS_STRING(scripthash_param)) {
         return JSONRPC_INVALID_PARAMS;
@@ -459,11 +445,7 @@ int blockchain_scripthash_getmempool(MempoolCache *mc_ptr, BitcoinRpcCtx *btc_rp
 	 * ]
 	 */
 
-
-    sync_thread_set_syncing(sync_thread_ctx, 0);
-    int ret = scripthash_history(mc_ptr, dbptr, response, scripthash, 0);
-    sync_thread_set_syncing(sync_thread_ctx, 1);
-    return ret;
+    return scripthash_history(mc_ptr, dbptr, response, scripthash, 0);
 }
 
 int blockchain_scripthash_listunspent(MempoolCache *mc_ptr, BitcoinRpcCtx *btc_rpc_ctx, TXDB *dbptr, SyncThreadCtx *sync_thread_ctx, jsonobj *params, jsonobj *response, struct client *client)
@@ -499,8 +481,6 @@ int blockchain_scripthash_listunspent(MempoolCache *mc_ptr, BitcoinRpcCtx *btc_r
     char tx_hash_str[65];
 
     response->type = LIST;
-
-    sync_thread_set_syncing(sync_thread_ctx, 0);
     
     size_t i;
     size_t utxo_sz = txdb_lookup_utxos(dbptr, scripthash, &utxos, TXDB_UNSPENT);
@@ -542,7 +522,6 @@ int blockchain_scripthash_listunspent(MempoolCache *mc_ptr, BitcoinRpcCtx *btc_r
         free(utxos);
     }
 
-    sync_thread_set_syncing(sync_thread_ctx, 1);
     return JSONRPC_OK;
 }
 
@@ -552,12 +531,8 @@ int blockchain_headers_subscribe(MempoolCache *mc_ptr, BitcoinRpcCtx *btc_rpc_ct
 
     uint8_t header[BLOCK_HEADER_SIZE];
     char headerstr[BLOCK_HEADER_SIZE*2+1];
-    int ret = JSONRPC_OK;
-    sync_thread_set_syncing(sync_thread_ctx, 0);
-    ret = txdb_get_block_header(dbptr, header, dbptr->current_height);
-    sync_thread_set_syncing(sync_thread_ctx, 1);
     
-    if (ret)
+    if (txdb_get_block_header(dbptr, header, dbptr->current_height))
         return JSONRPC_ELECTRUM_UNAVAIL_INDEX;
 
     response->type = JSON_OBJ;
@@ -584,8 +559,6 @@ int blockchain_scripthash_subscribe(MempoolCache *mc_ptr, BitcoinRpcCtx *btc_rpc
     if (hashes_vec_find(&client->subscr.scriphashes, scripthash) == -1) {
         hashes_vec_add(&client->subscr.scriphashes, scripthash);
 
-    	sync_thread_set_syncing(sync_thread_ctx, 0);
-
         uint8_t status_hash[32];
         if (!scripthash_status(dbptr, mc_ptr, status_hash, scripthash)) {
             char status_hashstr[65];
@@ -595,7 +568,6 @@ int blockchain_scripthash_subscribe(MempoolCache *mc_ptr, BitcoinRpcCtx *btc_rpc
             response->type = JSON_NULL;
         }
 
-    	sync_thread_set_syncing(sync_thread_ctx, 1);
         return JSONRPC_OK;
     }
 
@@ -712,10 +684,7 @@ int blockchain_transaction_get_merkle(MempoolCache *mc_ptr, BitcoinRpcCtx *btc_r
     HashesVec hashes;
     hashes_vec_init(&hashes);
 
-    sync_thread_set_syncing(sync_thread_ctx, 0);
-    int ret = txdb_lookup_txhashes_at_height(dbptr, &hashes, height_param->e.int_value);
-    sync_thread_set_syncing(sync_thread_ctx, 1);
-    if (ret)
+    if (txdb_lookup_txhashes_at_height(dbptr, &hashes, height_param->e.int_value))
         return JSONRPC_INTERNAL_ERROR;
 
     long tx_pos = hashes_vec_find(&hashes, hash);
@@ -800,11 +769,8 @@ int blockchain_transaction_id_from_pos(MempoolCache *mc_ptr, BitcoinRpcCtx *btc_
 
     HashesVec hashes;
     hashes_vec_init(&hashes);
-    sync_thread_set_syncing(sync_thread_ctx, 0);
-    int ret = txdb_lookup_txhashes_at_height(dbptr, &hashes, height_param->e.int_value);
-    sync_thread_set_syncing(sync_thread_ctx, 1);
 
-    if (ret)
+    if (txdb_lookup_txhashes_at_height(dbptr, &hashes, height_param->e.int_value))
         return JSONRPC_INTERNAL_ERROR;
 
     if (pos >= hashes.size) {
