@@ -579,7 +579,7 @@ size_t txdb_lookup_utxos(TXDB *dbptr, const uint8_t *scripthash, Utxo **utxosp, 
         assert(data_len == sizeof(ukey));
 
 		memcpy(&ukey, data, sizeof(ukey));
-        if (memcmp(ukey.scripthash_prefix, scripthash, 8))
+        if (!HASH256_EQ(ukey.scripthash_prefix, scripthash))
             break;
 
         data = (char*) leveldb_iter_value(iter, &data_len);
@@ -662,7 +662,7 @@ size_t txdb_history(TXDB *dbptr, uint8_t *scripthash, HistoryItem **historyp, si
         assert(data_len == sizeof(ukey));
 
 		memcpy(&ukey, data, sizeof(ukey));
-        if (memcmp(ukey.scripthash_prefix, scripthash, 8))
+        if (!HASH256_EQ(ukey.scripthash_prefix, scripthash))
             break;
 
         data = (char*) leveldb_iter_value(iter, &data_len);
