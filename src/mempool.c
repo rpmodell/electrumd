@@ -153,7 +153,7 @@ long mempool_tx_is_input(MempoolCache *mc_ptr, const uint8_t *txid_prefix)
     MC_LOCK(mc_ptr);
     for (e = mc_ptr->tx_cache.head; e; e = e->next) {
         for (itx = 0; itx < e->tx.tx_in_count; itx++) {
-            if (memcmp(e->tx.tx_in[itx].prev_out_hash, txid_prefix, 8) == 0) {
+            if (HASH256_EQ(e->tx.tx_in[itx].prev_out_hash, txid_prefix)) {
                 ret = 1;
                 goto is_input_end;
             }
@@ -172,7 +172,7 @@ static int mempool_tx_has_unconf_inputs(MempoolCache *mcp, BtcTx *tx)
 
     for (i = 0; i < tx->tx_in_count; i++) {
         for (e = mcp->tx_cache.head; e; e = e->next) {
-            if (memcmp(e->tx.txid, tx->tx_in[i].prev_out_hash, 32) == 0)
+            if (HASH256_EQ(e->tx.txid, tx->tx_in[i].prev_out_hash))
                 return 1;
         }
     }
@@ -192,7 +192,7 @@ size_t mempool_lookup_utxos(MempoolCache *mc_ptr, const uint8_t *scripthash, Utx
     MC_LOCK(mc_ptr);
     for (e = mc_ptr->tx_cache.head; e; e = e->next) {
         for (itx = 0; itx < e->tx.tx_out_count; itx++) {
-            if (memcmp(e->tx.tx_out[itx].pk_script_hash, scripthash, 32) == 0) {
+            if (HASH256_EQ(e->tx.tx_out[itx].pk_script_hash, scripthash)) {
                 if (outs_sz >= outs_capacity) {
                     outs_capacity *= 2;
                     (*utxos) = (Utxo*) realloc(*utxos, outs_capacity * sizeof(Utxo));
@@ -227,7 +227,7 @@ size_t mempool_lookup_txs(MempoolCache *mc_ptr, const uint8_t *scripthash, Mempo
     struct mc_tx_entry *e = NULL;
     for (e = mc_ptr->tx_cache.head; e; e = e->next) {
         for (itx = 0; itx < e->tx.tx_out_count; itx++) {
-            if (memcmp(e->tx.tx_out[itx].pk_script_hash, scripthash, 32) == 0) {
+            if (HASH256_EQ(e->tx.tx_out[itx].pk_script_hash, scripthash)) {
                 if (outs_sz >= outs_capacity) {
                     outs_capacity *= 2;
                     (*txinfos) = (MempoolTxInfo*) realloc((*txinfos), outs_capacity * sizeof(MempoolTxInfo));
@@ -252,7 +252,7 @@ struct mc_tx_entry *tx_cache_find_txid(MempoolCache *mcp, const uint8_t *txid)
 {
     struct mc_tx_entry *e = mcp->tx_cache.head;
     for (; e; e = e->next) {
-        if (memcmp(e->tx.txid, txid, 32) == 0)
+        if (HASH256_EQ(e->tx.txid, txid))
             return e;
     }
     return NULL;
@@ -260,15 +260,6 @@ struct mc_tx_entry *tx_cache_find_txid(MempoolCache *mcp, const uint8_t *txid)
 
 static struct mc_tx_entry *tx_cache_put(MempoolCache *mcp, BtcTx tx)
 {
-    // struct mc_tx_entry *e = NULL;
-    // for (e = mcp->tx_cache.head; e; e = e->next) {
-    //     if (memcmp(tx.tx_hash, e->tx.tx_hash, 32) == 0) {
-    //         btc_tx_free(e->tx);
-    //         e->tx = tx;
-    //         return e;
-    //     }
-    // }
-
     struct mc_tx_entry *new_entry = (struct mc_tx_entry*) malloc(1 * sizeof(struct mc_tx_entry));
     memset(new_entry, 0, sizeof(struct mc_tx_entry));
 
@@ -336,11 +327,6 @@ int mempool_cache_update(MempoolCache *mcp, BitcoinRpcCtx *btc_rpc_ctx, HashesVe
             break;
     }
 
-    for (i = new_txs_hashes.size - 1; i >= 0; i--) {
-        if (tx_cache_find_txid(mcp, new_txs_hashes.v[i]))
-            hashes_vec_remove(&new_txs_hashes, i);
-    }
-
     MC_UNLOCK(mcp);
 
     int ret = 0;
@@ -354,6 +340,13 @@ int mempool_cache_update(MempoolCache *mcp, BitcoinRpcCtx *btc_rpc_ctx, HashesVe
 
     new_count = 0;
     for (i = 0; i < new_txs_hashes.size; i++) {
+        MC_LOCK(mcp);
+        e = tx_cache_find_txid(mcp, new_txs_hashes.v[i]);
+        MC_UNLOCK(mcp);
+
+        if (e)
+            continue;
+
         bytes_to_hex_reverse(new_txs_hashes.v[i], 32, txid_str);
         if ((ret = getmempoolentry(btc_rpc_ctx, txid_str, &mpe))) {
             logerrf("failed getmempool entry");

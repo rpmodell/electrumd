@@ -27,11 +27,13 @@
  *
  */
 
+#include "hashes_vec.h"
+
+#include "util.h"
+
 #include <assert.h>
 #include <stdlib.h>
 #include <string.h>
-
-#include "hashes_vec.h"
 
 void hashes_vec_init(HashesVec *vec)
 {
@@ -79,7 +81,7 @@ ssize_t hashes_vec_find(HashesVec *vec, uint8_t *hash)
 {
     long i;
     for (i = 0; i < vec->size; i++) {
-        if (memcmp(vec->v[i], hash, 32) == 0)
+        if (HASH256_EQ(vec->v[i], hash))
             return i;
     }
 

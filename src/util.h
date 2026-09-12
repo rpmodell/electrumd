@@ -47,7 +47,8 @@
 #define JSONRPC_ELECTRUM_DAEMON_ERROR 2
 #define JSONRPC_ELECTRUM_UNAVAIL_INDEX 32603
 
-#define FCMP_8(A, B) A[0] == B[0] && A[1] == B[1] && A[2] == B[2] && A[3] == B[3] && A[4] == B[4] && A[5] == B[5] && A[6] == B[6] && A[7] == B[7]
+// Fast compre two SHA256 or doubleSHA256 hashes
+#define HASH256_EQ(HA, HB) (*((uint64_t*) (HA)) == *((uint64_t*) (HB)))
 
 #define SHA256_DIGEST_LEN 32
 

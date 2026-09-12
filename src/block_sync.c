@@ -484,6 +484,7 @@ void *btc_sync_thread_func(void *o)
         HashesVec new_scripthashes;
         hashes_vec_init(&new_scripthashes);
 
+
         mempool_cache_update(arg->mc_ptr, arg->core_rpc_ctx, &new_scripthashes);
         if (getblockcount(arg->core_rpc_ctx, &last_height)) {
             logerrf("block sync: failed to fetch new height");
