@@ -77,7 +77,7 @@
     64 	NODE_COMPACT_FILTERS 	See BIP 0157
     1024 	NODE_NETWORK_LIMITED 	See BIP 0159
 */
-#define ELECTRUMD_SERVICES 0x00
+#define ELECTRUMSRV_SERVICES 0x00
 
 #define MSG_BLOCK_STR "MSG_BLOCK"
 
@@ -231,7 +231,7 @@ int p2p_connect(BtcP2pProtoCtx *ctx, int32_t height)
     */
     struct p2p_msg_version verpayload;
     verpayload.version = htole32(BTC_PROTOCOL_VERSION);
-    verpayload.services = ELECTRUMD_SERVICES;
+    verpayload.services = ELECTRUMSRV_SERVICES;
     verpayload.timestamp = time(NULL);
     memset(verpayload.addr_recv, 0, sizeof(verpayload.addr_recv)); // lets live like there and then if it not work adjust
     memset(verpayload.addr_from, 0, sizeof(verpayload.addr_from)); // can be ignored left 0 because its better

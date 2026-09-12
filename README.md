@@ -1,6 +1,6 @@
-# Electrumd
+# Electrumsrvd
 
-Electrumd is a small and lightweight Electrum server.
+Electrumsrvd is a small and lightweight Electrum server.
 
 ### Build Dependencies
 - libcurl
@@ -26,7 +26,7 @@ Electrumd is a small and lightweight Electrum server.
 - Peering suport (Add / Subscribe)
 
 ### Build and install
-- To build and install electrumd
+- To build and install electrumsrvd
 ```bash
 make install clean
 ```
@@ -34,7 +34,7 @@ make install clean
 ### Running tests
 - Electrum RPC test:
 ```bash
-pytest tests/test_electrum_rpc.py # requires a fully synced electrumd daemon
+pytest tests/test_electrum_rpc.py # requires a fully synced electrumsrvd daemon
 ```
 
 - Integration with electrum wallet test:
@@ -44,8 +44,8 @@ pytest tests/test_wallet_integration.py
 
 ### Additional notes
 - Requires txindex
-- For now at least, electrumd must be intended to be used in a small scale home or friends environment it is not meant for a enterprise service level
+- For now at least, electrumsrvd must be intended to be used in a small scale home or friends environment it is not meant for a enterprise service level
 - Currencies different from BTC are not supported for now
 
 ### Irc channels
-* #electrumd_irc on irc.darkscience.net
+* #electrumsrvd_irc on irc.darkscience.net

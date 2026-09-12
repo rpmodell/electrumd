@@ -33,8 +33,8 @@ import time
 import pytest
 from time import sleep
 
-ELECTRUMD_PATH = "./electrumd"
-CONF_PATH = "tests/electrumd_test.conf"
+ELECTRUMSRVD_PATH = "./electrumsrvd"
+CONF_PATH = "tests/electrumsrvd_test.conf"
 
 TEST_DATA_DIR = "tests/test_data"
 TESTDEPS_PATH = "tests/testdeps/"
@@ -87,7 +87,7 @@ def test_wallet_integration(request):
     bitcoind_path = f'{TESTDEPS_PATH}/bitcoin/bin/bitcoind'
     bitcoin_cli_path = f'{TESTDEPS_PATH}/bitcoin/bin/bitcoin-cli'
     electrum_path = f'{TESTDEPS_PATH}/electrum'
-    electrumd_path = ELECTRUMD_PATH
+    electrumsrvd_path = ELECTRUMSRVD_PATH
 
     assert os.path.exists(bitcoind_path)
     assert os.path.exists(bitcoin_cli_path)
@@ -96,10 +96,10 @@ def test_wallet_integration(request):
     test_data_dir = TEST_DATA_DIR
     bitcoin_data_dir = f'{test_data_dir}/bitcoin/'
     electrum_data_dir = f'{test_data_dir}/electrum/'
-    electrumd_data_dir = f'{test_data_dir}/electrumd_test_db/'
+    electrumsrvd_data_dir = f'{test_data_dir}/electrumsrvd_test_db/'
     electrum_log_path = f'{electrum_data_dir}/regtest-debug.log'
-    electrumd_log_path = f'{electrumd_data_dir}/test.log'
-    electrumd_fatal_log_path = f'{electrumd_data_dir}/fatal.log'
+    electrumsrvd_log_path = f'{electrumsrvd_data_dir}/test.log'
+    electrumsrvd_fatal_log_path = f'{electrumsrvd_data_dir}/fatal.log'
 
     if os.path.exists(test_data_dir):
         shutil.rmtree(test_data_dir, ignore_errors=True)
@@ -107,7 +107,7 @@ def test_wallet_integration(request):
     os.mkdir(test_data_dir)
     os.mkdir(bitcoin_data_dir)
     os.mkdir(electrum_data_dir)
-    os.mkdir(electrumd_data_dir)
+    os.mkdir(electrumsrvd_data_dir)
 
     print("[*] starting $($BITCOIND_PATH -version | head -n1)...")
     bitcoind_proc = run_detached_process(
@@ -133,18 +133,18 @@ def test_wallet_integration(request):
     json_result = json.loads(bitcoin_cli(bitcoin_cli_path, bitcoin_data_dir, ['getblockchaininfo']))
     print(f"[*] generated {json_result['blocks']} regtest blocks {int(json_result['size_on_disk']) / 1e3} kB)")
 
-    electrumd_proc = run_detached_process(
-        [electrumd_path, '-c', f'{CONF_PATH}', '-l', 'debug'],
-        electrumd_fatal_log_path
+    electrumsrvd_proc = run_detached_process(
+        [electrumsrvd_path, '-c', f'{CONF_PATH}', '-l', 'debug'],
+        electrumsrvd_fatal_log_path
     )
 
-    def teardown_electrumd():
-        electrumd_proc.send_signal(signal.SIGINT)
-        electrumd_proc.wait()
+    def teardown_electrumsrvd():
+        electrumsrvd_proc.send_signal(signal.SIGINT)
+        electrumsrvd_proc.wait()
 
-    request.addfinalizer(teardown_electrumd)
+    request.addfinalizer(teardown_electrumsrvd)
 
-    wait_log_message(electrumd_log_path, "electrum rpc server: socket is listening")
+    wait_log_message(electrumsrvd_log_path, "electrum rpc server: socket is listening")
 
     print("[*] starting electrum wallet daemon ")
     electrum_proc = run_detached_process(

@@ -32,44 +32,8 @@ import time
 import pytest
 from subprocess import Popen, PIPE
 
-ELECTRUMD_PATH = "./electrumd"
-CONF_PATH = "tests/electrumd_test.conf"
-
-ELECTRUMD_HOST = "127.0.0.1"
-ELECTRUMD_PORT = 50001
-
-# ELECTRUMD_HOST = "electrum1.bluewallet.io"
-# ELECTRUMD_PORT = 50001
-
-electrumd_process: Popen = None
-
-
-@pytest.fixture
-def setup_electrumd_daemon(session):
-    # def teardown_electrumd_daemon(session):
-    #     electrumd_process.send_signal(signal.CTRL_C_EVENT)
-
-    global electrumd_process
-    if electrumd_process != None:
-        return
-
-    electrumd_process = Popen([ELECTRUMD_PATH, "-c", CONF_PATH, "-l", "debug"], stdout=PIPE, stderr=PIPE,
-                              start_new_session=True)
-    time.sleep(1)
-
-    yield
-
-    electrumd_process.send_signal(signal.CTRL_C_EVENT)
-
-
-def assert_electrumd_running():
-    pass
-    # assert electrumd_process != None
-    #
-    # poll = electrumd_process.poll()
-    # if poll != None:
-    #     if electrumd_process.returncode != 0:
-    #         raise Exception(electrumd_process.stderr.read())
+ELECTRUMSRVD_HOST = "127.0.0.1"
+ELECTRUMSRVD_PORT = 50001
 
 
 def jsonrpc_send_request(host: str, port: int, method: str, params: list):
@@ -107,26 +71,22 @@ def jsonrpc_send_request(host: str, port: int, method: str, params: list):
 
 
 def test_server_version():
-    assert_electrumd_running()
-
     result = jsonrpc_send_request(
-        ELECTRUMD_HOST,
-        ELECTRUMD_PORT,
+        ELECTRUMSRVD_HOST,
+        ELECTRUMSRVD_PORT,
         "server.version",
         ["electrum_client", ["1.4", "1.4.3"]]
     )
 
     print(result)
-    assert result[0] == "electrumd"
+    assert result[0] == "electrumsrvd"
     assert result[1] == "1.4"
 
 
 def test_server_features():
-    assert_electrumd_running()
-
     result = jsonrpc_send_request(
-        ELECTRUMD_HOST,
-        ELECTRUMD_PORT,
+        ELECTRUMSRVD_HOST,
+        ELECTRUMSRVD_PORT,
         "server.features",
         []
     )
@@ -134,7 +94,7 @@ def test_server_features():
     assert result["hosts"]["127.0.0.1"]["tcp_port"] == 50001
     assert result["hosts"]["127.0.0.1"]["ssl_port"] == None
     assert result["pruning"] == None
-    assert result["server_version"] == "electrumd" 
+    assert result["server_version"] == "electrumsrvd" 
     assert result["protocol_min"] == "1.4"
     assert result["protocol_max"] == "1.4"
     assert result["genesis_hash"] == "000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f"
@@ -142,11 +102,9 @@ def test_server_features():
 
 
 def test_blockchain_block_headers_1():
-    assert_electrumd_running()
-
     result = jsonrpc_send_request(
-        ELECTRUMD_HOST,
-        ELECTRUMD_PORT,
+        ELECTRUMSRVD_HOST,
+        ELECTRUMSRVD_PORT,
         "blockchain.block.headers",
         [34889, 12]
     )
@@ -180,11 +138,9 @@ def test_blockchain_block_headers_1():
 
 
 def test_blockchain_block_headers_2():
-    assert_electrumd_running()
-
     result = jsonrpc_send_request(
-        ELECTRUMD_HOST,
-        ELECTRUMD_PORT,
+        ELECTRUMSRVD_HOST,
+        ELECTRUMSRVD_PORT,
         "blockchain.block.headers",
         [67988, 2]
     )
@@ -200,11 +156,9 @@ def test_blockchain_block_headers_2():
 
 
 def test_blockchain_block_headers_3():
-    assert_electrumd_running()
-
     result = jsonrpc_send_request(
-        ELECTRUMD_HOST,
-        ELECTRUMD_PORT,
+        ELECTRUMSRVD_HOST,
+        ELECTRUMSRVD_PORT,
         "blockchain.block.headers",
         [567899, 22]
     )
@@ -262,11 +216,9 @@ def test_blockchain_block_headers_3():
 
 
 def test_blockchain_block_headers_4():
-    assert_electrumd_running()
-
     result = jsonrpc_send_request(
-        ELECTRUMD_HOST,
-        ELECTRUMD_PORT,
+        ELECTRUMSRVD_HOST,
+        ELECTRUMSRVD_PORT,
         "blockchain.block.headers",
         [655825, 2]
     )
@@ -282,11 +234,9 @@ def test_blockchain_block_headers_4():
 
 
 def test_blockchain_block_headers_5():
-    assert_electrumd_running()
-
     result = jsonrpc_send_request(
-        ELECTRUMD_HOST,
-        ELECTRUMD_PORT,
+        ELECTRUMSRVD_HOST,
+        ELECTRUMSRVD_PORT,
         "blockchain.block.headers",
         [757221, 1]
     )
@@ -301,11 +251,9 @@ def test_blockchain_block_headers_5():
 
 
 def test_blockchain_scripthash_getbalance_1():
-    assert_electrumd_running()
-
     result = jsonrpc_send_request(
-        ELECTRUMD_HOST,
-        ELECTRUMD_PORT,
+        ELECTRUMSRVD_HOST,
+        ELECTRUMSRVD_PORT,
         "blockchain.scripthash.get_balance",
         ["898339e1839b2ed57690385daa4b2ec8463982797ef5f666c3f78db21c6db227"]
     )
@@ -315,11 +263,9 @@ def test_blockchain_scripthash_getbalance_1():
 
 
 def test_blockchain_scripthash_getbalance_2():
-    assert_electrumd_running()
-
     result = jsonrpc_send_request(
-        ELECTRUMD_HOST,
-        ELECTRUMD_PORT,
+        ELECTRUMSRVD_HOST,
+        ELECTRUMSRVD_PORT,
         "blockchain.scripthash.get_balance",
         ["7726432279d1ca8969cdff7c4fe38abe17b0b551ac8bd134dd1dc1caf1a0c078"]
     )
@@ -329,13 +275,11 @@ def test_blockchain_scripthash_getbalance_2():
 
 
 def test_blockchain_scripthash_listunspent():
-    assert_electrumd_running()
-
     # height = 348999
 
     result = jsonrpc_send_request(
-        ELECTRUMD_HOST,
-        ELECTRUMD_PORT,
+        ELECTRUMSRVD_HOST,
+        ELECTRUMSRVD_PORT,
         "blockchain.scripthash.listunspent",
         ["0cbd3eda5f01eb84f871d5e21d2cf624d7834c02ffabca803f4f5d68c3c85f66"]
     )
@@ -344,13 +288,11 @@ def test_blockchain_scripthash_listunspent():
 
 
 def test_blockchain_scripthash_listunspent_2():
-    assert_electrumd_running()
-
     # height = 348999
 
     result = jsonrpc_send_request(
-        ELECTRUMD_HOST,
-        ELECTRUMD_PORT,
+        ELECTRUMSRVD_HOST,
+        ELECTRUMSRVD_PORT,
         "blockchain.scripthash.listunspent",
         ["5f6046700aa7b611ecc5c22943d728b5cae1bf80a2aa98a4bf0b794e2c11762b"]
     )
@@ -359,13 +301,11 @@ def test_blockchain_scripthash_listunspent_2():
 
 
 def test_blockchain_scripthash_subscribe_1():
-    assert_electrumd_running()
-
     # height = 348999
 
     result = jsonrpc_send_request(
-        ELECTRUMD_HOST,
-        ELECTRUMD_PORT,
+        ELECTRUMSRVD_HOST,
+        ELECTRUMSRVD_PORT,
         "blockchain.scripthash.subscribe",
         ["88e3c420cb1d591ad3af9a585e17824766029e1530091ece293c0bea8c743260"]
     )
@@ -374,11 +314,9 @@ def test_blockchain_scripthash_subscribe_1():
 
 
 def test_blockchain_scripthash_subscribe_2():
-    assert_electrumd_running()
-
     result = jsonrpc_send_request(
-        ELECTRUMD_HOST,
-        ELECTRUMD_PORT,
+        ELECTRUMSRVD_HOST,
+        ELECTRUMSRVD_PORT,
         "blockchain.scripthash.subscribe",
         ["0cbd3eda5f01eb84f871d5e21d2cf624d7834c02ffabca803f4f5d68c3c85f66"]
     )
@@ -387,11 +325,9 @@ def test_blockchain_scripthash_subscribe_2():
 
 
 def test_blockchain_scripthash_subscribe_3():
-    assert_electrumd_running()
-
     result = jsonrpc_send_request(
-        ELECTRUMD_HOST,
-        ELECTRUMD_PORT,
+        ELECTRUMSRVD_HOST,
+        ELECTRUMSRVD_PORT,
         "blockchain.scripthash.subscribe",
         ["5f6046700aa7b611ecc5c22943d728b5cae1bf80a2aa98a4bf0b794e2c11762b"]
     )
@@ -400,11 +336,9 @@ def test_blockchain_scripthash_subscribe_3():
 
 
 def test_blockchain_scripthash_get_history_1():
-    assert_electrumd_running()
-
     result = jsonrpc_send_request(
-        ELECTRUMD_HOST,
-        ELECTRUMD_PORT,
+        ELECTRUMSRVD_HOST,
+        ELECTRUMSRVD_PORT,
         "blockchain.scripthash.get_history",
         ["88e3c420cb1d591ad3af9a585e17824766029e1530091ece293c0bea8c743260"]
     )
@@ -417,11 +351,9 @@ def test_blockchain_scripthash_get_history_1():
 
 
 def test_blockchain_scripthash_get_history_2():
-    assert_electrumd_running()
-
     result = jsonrpc_send_request(
-        ELECTRUMD_HOST,
-        ELECTRUMD_PORT,
+        ELECTRUMSRVD_HOST,
+        ELECTRUMSRVD_PORT,
         "blockchain.scripthash.get_history",
         ["2066d334854ac44fd8a7e5aac028aad69a24541dd95ce309fc419506869f9e32"]
     )
@@ -462,11 +394,9 @@ def test_blockchain_scripthash_get_history_2():
 
 
 def test_blockchain_scripthash_get_history_3():
-    assert_electrumd_running()
-
     result = jsonrpc_send_request(
-        ELECTRUMD_HOST,
-        ELECTRUMD_PORT,
+        ELECTRUMSRVD_HOST,
+        ELECTRUMSRVD_PORT,
         "blockchain.scripthash.get_history",
         ["5f6046700aa7b611ecc5c22943d728b5cae1bf80a2aa98a4bf0b794e2c11762b"]
     )
@@ -519,11 +449,9 @@ def test_blockchain_scripthash_get_history_3():
 
 
 def test_blockchain_transaction_get_merkle_1():
-    assert_electrumd_running()
-
     result = jsonrpc_send_request(
-        ELECTRUMD_HOST,
-        ELECTRUMD_PORT,
+        ELECTRUMSRVD_HOST,
+        ELECTRUMSRVD_PORT,
         "blockchain.transaction.get_merkle",
         ["f8062887fd60638c71cdb7c06f1576477ba619d763b550708985de86be38eae7", 89988]
     )
@@ -537,11 +465,9 @@ def test_blockchain_transaction_get_merkle_1():
 
 
 def test_blockchain_transaction_get_merkle_2():
-    assert_electrumd_running()
-
     result = jsonrpc_send_request(
-        ELECTRUMD_HOST,
-        ELECTRUMD_PORT,
+        ELECTRUMSRVD_HOST,
+        ELECTRUMSRVD_PORT,
         "blockchain.transaction.get_merkle",
         ["5a7966302e3f1cdc874bce1feb8ca39dcd095090c6d1d4bff06255b7ad8991a9",826127]
     )
@@ -566,11 +492,9 @@ def test_blockchain_transaction_get_merkle_2():
 
 
 def test_blockchain_transaction_get_merkle_3():
-    assert_electrumd_running()
-
     result = jsonrpc_send_request(
-        ELECTRUMD_HOST,
-        ELECTRUMD_PORT,
+        ELECTRUMSRVD_HOST,
+        ELECTRUMSRVD_PORT,
         "blockchain.transaction.get_merkle",
         ["e2a1aac724fcdf12647a9dcc6c8e52ee52698c6ac45677a661ca75c159de2310",932444]
     )
@@ -594,11 +518,9 @@ def test_blockchain_transaction_get_merkle_3():
 
 
 def test_blockchain_transaction_id_from_pos():
-    assert_electrumd_running()
-
     result = jsonrpc_send_request(
-        ELECTRUMD_HOST,
-        ELECTRUMD_PORT,
+        ELECTRUMSRVD_HOST,
+        ELECTRUMSRVD_PORT,
         "blockchain.transaction.id_from_pos",
         [86000, 1, False]
     )
@@ -607,11 +529,9 @@ def test_blockchain_transaction_id_from_pos():
 
 
 def test_blockchain_transaction_id_from_pos_merkle_1():
-    assert_electrumd_running()
-
     result = jsonrpc_send_request(
-        ELECTRUMD_HOST,
-        ELECTRUMD_PORT,
+        ELECTRUMSRVD_HOST,
+        ELECTRUMSRVD_PORT,
         "blockchain.transaction.id_from_pos",
         [86000, 1, True]
     )
@@ -623,11 +543,9 @@ def test_blockchain_transaction_id_from_pos_merkle_1():
 
 
 def test_blockchain_transaction_id_from_pos_merkle_2():
-    assert_electrumd_running()
-
     result = jsonrpc_send_request(
-        ELECTRUMD_HOST,
-        ELECTRUMD_PORT,
+        ELECTRUMSRVD_HOST,
+        ELECTRUMSRVD_PORT,
         "blockchain.transaction.id_from_pos",
         [89988, 2, True]
     )
@@ -640,11 +558,9 @@ def test_blockchain_transaction_id_from_pos_merkle_2():
 
 
 def test_blockchain_transaction_get_verbose_false():
-    assert_electrumd_running()
-
     result = jsonrpc_send_request(
-        ELECTRUMD_HOST,
-        ELECTRUMD_PORT,
+        ELECTRUMSRVD_HOST,
+        ELECTRUMSRVD_PORT,
         "blockchain.transaction.get",
         ["cc4380935316ae6e1af934fa018070dcee96225404cb125f7fe5ff7aad8cde11"]
     )
@@ -662,11 +578,9 @@ def test_blockchain_transaction_get_verbose_false():
 
 
 def test_blockchain_transaction_get_verbose_true():
-    assert_electrumd_running()
-
     result = jsonrpc_send_request(
-        ELECTRUMD_HOST,
-        ELECTRUMD_PORT,
+        ELECTRUMSRVD_HOST,
+        ELECTRUMSRVD_PORT,
         "blockchain.transaction.get",
         ["cc4380935316ae6e1af934fa018070dcee96225404cb125f7fe5ff7aad8cde11", True]
     )

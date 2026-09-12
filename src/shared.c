@@ -29,4 +29,14 @@
 
 #include "shared.h"
 
-int electrumd_running;
+int _running;
+
+void set_electrumsrv_running(int running)
+{
+    _running = running;
+}
+
+int is_electrumsrv_running()
+{
+    return _running;
+}

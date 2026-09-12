@@ -42,7 +42,7 @@
 #define MAX_RET_HEADERS 2016
 #define MAX_CLIENTS 10
 
-#define ELECTRUMD_SERVER_NAME "electrumd"
+#define ELECTRUMSRVD_SERVER_NAME "electrumsrvd"
 #define ELECTRUM_PROTOCOL_MIN "1.4"
 #define ELECTRUM_PROTOCOL_MAX "1.4"
 #define ELECTRUM_PROTOCOL_MIN_NUMBER 140
@@ -52,6 +52,6 @@ int electrum_rpc_height_notify(TXDB *dbptr, uint32_t height);
 int electrum_rpc_new_scripthashes_notify(TXDB *dbptr, MempoolCache *mc_ptr, const HashesVec *new_scripthashes);
 
 int electrum_server_init(char *pub_addr, int port, char *donation_addr, char *banner);
-int electrum_server_start(MempoolCache *mcp, BitcoinRpcCtx *btc_rpc_ctx, TXDB *dbptr, SyncThreadCtx *sync_thread_ctx, ElectrumdConfigs *cfg);
+int electrum_server_start(MempoolCache *mcp, BitcoinRpcCtx *btc_rpc_ctx, TXDB *dbptr, SyncThreadCtx *sync_thread_ctx, Configs *cfg);
 
 #endif

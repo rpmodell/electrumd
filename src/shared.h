@@ -30,6 +30,8 @@
 #ifndef __SHARED_H__
 #define __SHARED_H__
 
-extern int electrumd_running;
+void set_electrumsrv_running(int running);
+int is_electrumsrv_running(void);
+
 
 #endif // __SHARED_H__

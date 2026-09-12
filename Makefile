@@ -5,7 +5,7 @@ LDFLAGS=-lcurl -lpthread -lleveldb -lcrypto -lssl -lm -L/usr/local/lib/
 SOURCES_DIR=src/
 
 OBJS=shared.o ujson.o hashes_vec.o block_sync.o bitcoin_rpc.o bitcoin_common.o bitcoin_p2p.o txdb.o merkle.o util.o mempool.o logging.o config.o electrum_rpc.o main.o
-TARGET=electrumd
+TARGET=electrumsrvd
 
 $(TARGET): $(OBJS)
 	$(CC) $(CFLAGS) -o $@ $(OBJS) $(LDFLAGS)
@@ -62,6 +62,6 @@ clean:
 .PHONY: install
 install:
 	install -m 0755 ./$(TARGET) /usr/local/bin/ 
-	install -m 0664 -b ./etc/electrumd.conf /usr/local/etc/
-	install -m 0664 ./electrumd.1 /usr/local/share/man/man1/
-	install -m 0664 ./electrumd.conf.1 /usr/local/share/man/man1/
+	install -m 0664 -b ./etc/$(TARGET).conf /usr/local/etc/
+	install -m 0664 ./$(TARGET).1 /usr/local/share/man/man1/
+	install -m 0664 ./$(TARGET).conf.1 /usr/local/share/man/man1/

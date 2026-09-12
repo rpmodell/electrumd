@@ -80,7 +80,7 @@ int prefetch_blocks(BitcoinRpcCtx *btc_rpc_ctx, TXDB *dbptr, HashesVec *new_scri
 
     time_t last_height_check = time(NULL);
     time_t statistic_time = 0;
-    while (electrumd_running && dbptr->current_height < last_height) {
+    while (is_electrumsrv_running() && dbptr->current_height < last_height) {
 #ifndef DB_TEST_HEIGHT
         if ((time(NULL) - last_height_check) >= (20 * UNIX_MINUTE)) {
             long nw_height = -1;
@@ -293,7 +293,7 @@ int prefetch_blocks2(BitcoinRpcCtx *btc_rpc_ctx, BtcP2pProtoCtx *p2p_ctx, TXDB *
     }
 
     time_t last_height_check = time(NULL);
-    while (electrumd_running && dbptr->current_height < last_height) {
+    while (is_electrumsrv_running() && dbptr->current_height < last_height) {
 #ifndef DB_TEST_HEIGHT
         if ((time(NULL) - last_height_check) >= (20 * UNIX_MINUTE)) {
             long nw_height = -1;
@@ -466,7 +466,7 @@ void *btc_sync_thread_func(void *o)
     SyncThreadCtx *arg = (SyncThreadCtx*) o;
     struct timespec twait;
 
-    while (electrumd_running) {
+    while (is_electrumsrv_running()) {
         clock_gettime(CLOCK_REALTIME, &twait);
         twait.tv_sec += SYNC_THREAD_SECONDS;
 
@@ -474,7 +474,7 @@ void *btc_sync_thread_func(void *o)
         pthread_cond_timedwait(&arg->cond, &arg->mutex, &twait);
         pthread_mutex_unlock(&arg->mutex);
 
-        if (!electrumd_running) {
+        if (!is_electrumsrv_running()) {
             return NULL;
         }
 

@@ -38,21 +38,21 @@ typedef struct {
     char *bitcoin_rpc_host;
     char *bitcoin_p2p_addr;
     int bitcoin_p2p_port;
-    char *electrumd_rpc_bind;
-	int electrumd_rpc_port;
-	int electrumd_rpc_listen_ssl;
-	char *electrumd_rpc_ssl_cert_file;
-	char *electrumd_rpc_ssl_priv_key_file;
+    char *listen_addr;
+    int listen_port;
+    int listen_ssl;
+    char *ssl_cert_file;
+    char *ssl_priv_key_file;
     unsigned int cache_size;
     char *db_dir;
     char *donation_address;
     char *banner;
-} ElectrumdConfigs;
+} Configs;
 
-void configs_init(ElectrumdConfigs *configs);
-int configs_check(ElectrumdConfigs *configs, int opt_daemon);
-void configs_free(ElectrumdConfigs *configs);
-void configs_print(ElectrumdConfigs *configs);
-int configs_parse_file(ElectrumdConfigs *configs, const char *fpath);
+void configs_init(Configs *configs);
+int configs_check(Configs *configs, int opt_daemon);
+void configs_free(Configs *configs);
+void configs_print(Configs *configs);
+int configs_parse_file(Configs *configs, const char *fpath);
 
 #endif

@@ -877,7 +877,7 @@ int server_version(MempoolCache *mc_ptr, BitcoinRpcCtx *btc_rpc_ctx, TXDB *dbptr
     }
 
 	response->type = LIST;
-    jsonobj_list_add_str(response, ELECTRUMD_SERVER_NAME);
+    jsonobj_list_add_str(response, ELECTRUMSRVD_SERVER_NAME);
 
     if (version % 10) {
         snprintf(version_str, 6, "%d.%d.%d", version / 100, (version / 10) % 10, version % 10);
@@ -910,7 +910,7 @@ int server_features(MempoolCache *mc_ptr, BitcoinRpcCtx *btc_rpc_ctx, TXDB *dbpt
     jsonobj_put_null(response, "pruning");
     jsonobj_put_str(response, "protocol_max", ELECTRUM_PROTOCOL_MAX);
     jsonobj_put_str(response, "protocol_min", ELECTRUM_PROTOCOL_MIN);
-    jsonobj_put_str(response, "server_version", ELECTRUMD_SERVER_NAME);
+    jsonobj_put_str(response, "server_version", ELECTRUMSRVD_SERVER_NAME);
     jsonobj_put_str(response, "hash_function", "sha256");
 
     return JSONRPC_OK;
@@ -1243,18 +1243,18 @@ static SSL_CTX *create_ssl_ctx(const char *cert_path, const char *priv_key_path)
     return ssl_ctx;
 }
 
-int electrum_server_start(MempoolCache *mcp, BitcoinRpcCtx *btc_rpc_ctx, TXDB *dbptr, SyncThreadCtx *sync_thread_ctx, ElectrumdConfigs *cfg)
+int electrum_server_start(MempoolCache *mcp, BitcoinRpcCtx *btc_rpc_ctx, TXDB *dbptr, SyncThreadCtx *sync_thread_ctx, Configs *cfg)
 {
     int sockfd, connfd, len;
     SSL_CTX *ssl_ctx = NULL;
     struct sockaddr_in servaddr, cli;
 
-    const char *addr = cfg->electrumd_rpc_bind;
-    int port = cfg->electrumd_rpc_port;
+    const char *addr = cfg->listen_addr;
+    int port = cfg->listen_port;
 
     // Create SSL context
-    if (cfg->electrumd_rpc_listen_ssl) {
-        if ((ssl_ctx = create_ssl_ctx(cfg->electrumd_rpc_ssl_cert_file, cfg->electrumd_rpc_ssl_priv_key_file)) == NULL)
+    if (cfg->listen_ssl) {
+        if ((ssl_ctx = create_ssl_ctx(cfg->ssl_cert_file, cfg->ssl_priv_key_file)) == NULL)
             return -1;
     }
 
@@ -1307,7 +1307,7 @@ int electrum_server_start(MempoolCache *mcp, BitcoinRpcCtx *btc_rpc_ctx, TXDB *d
     fds[0].fd = sockfd;
     fds[0].events = POLLIN | POLLPRI;
 
-    while (electrumd_running && (poll(fds, nfds, 300)) != -1) {
+    while (is_electrumsrv_running() && (poll(fds, nfds, 300)) != -1) {
         if (fds[0].revents & POLLIN) {
             if ((connfd = accept(sockfd, (struct sockaddr*) &cli, (socklen_t*) &len)) < 0) {
                 continue;

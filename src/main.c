@@ -51,8 +51,8 @@
 
 static void signal_handler(int signum)
 {
-    loginfof("electrumd: SIGINT caught: stopping");
-    electrumd_running = 0;
+    loginfof("electrumsrvd: SIGINT caught: stopping");
+    set_electrumsrv_running(0);
 }
 
 static void ssl_init(void)
@@ -71,13 +71,13 @@ static void ssl_shutdown(void)
 int main(int argc, char **argv)
 {
     char confing_path[512];
-    strcpy(confing_path, "/usr/local/etc/electrumd.conf");
+    strcpy(confing_path, "/usr/local/etc/electrumsrvd.conf");
 
     logging_init();
     logging_set_level(LOGGING_LEVEL_DEBUG);
 
     struct sigaction sa;
-    ElectrumdConfigs configs;
+    Configs configs;
     configs_init(&configs);
 
     struct stat pid_stat;
@@ -131,7 +131,7 @@ int main(int argc, char **argv)
     }
     
 	if (!stat(configs.pid_file_path, &pid_stat)) {
-        logerrf("electrumd: electrumd is already running, exiting now");
+        logerrf("electrumsrvd: electrumsrvd is already running, exiting now");
         return EXIT_FAILURE;
     }
 
@@ -141,7 +141,7 @@ int main(int argc, char **argv)
 	unveil(configs.log_file_path, "rwc");
 #endif
         if (logging_set_file(configs.log_file_path)) {
-            logerrf("electrumd: cannot log to file %s: %s", configs.log_file_path, strerror(errno));
+            logerrf("electrumsrvd: cannot log to file %s: %s", configs.log_file_path, strerror(errno));
             return EXIT_FAILURE;
         }
     }
@@ -150,7 +150,7 @@ int main(int argc, char **argv)
     if (configs.bitcoin_rpc_auth_cookie) {
         FILE *cookie_fp = fopen(configs.bitcoin_rpc_auth, "r");
         if (!cookie_fp) {
-            logerrf("electrumd: cannot read cookie file %s: %s", configs.bitcoin_rpc_auth, strerror(errno));
+            logerrf("electrumsrvd: cannot read cookie file %s: %s", configs.bitcoin_rpc_auth, strerror(errno));
             return EXIT_FAILURE;
         }
 
@@ -203,17 +203,17 @@ int main(int argc, char **argv)
     if (daemon) {
         switch (fork()) {
         case -1:
-            logerrf("electrumd: fork failed: %s", strerror(errno));
+            logerrf("electrumsrvd: fork failed: %s", strerror(errno));
             return EXIT_FAILURE;
         case 0:
             if (setsid() < 0) {
-                logerrf("electrumd: fork failed: %s", strerror(errno));
+                logerrf("electrumsrvd: fork failed: %s", strerror(errno));
                 return EXIT_FAILURE;
             }
 
             switch (fork()) {
             case -1:
-                logerrf("electrumd: fork failed: %s", strerror(errno));
+                logerrf("electrumsrvd: fork failed: %s", strerror(errno));
                 return EXIT_FAILURE;
                 break;
             case 0:
@@ -240,12 +240,12 @@ int main(int argc, char **argv)
         return EXIT_FAILURE;
 
     /* Start Sync process*/
-    electrumd_running = 1;
+    set_electrumsrv_running(1);
 
 
     FILE *pid_fp = fopen(configs.pid_file_path, "w");
     if (!pid_fp) {
-        logerrf("electrumd: unable to write pid file: %s: %s", configs.pid_file_path, strerror(errno));
+        logerrf("electrumsrvd: unable to write pid file: %s: %s", configs.pid_file_path, strerror(errno));
         return EXIT_FAILURE;
     }
     fprintf(pid_fp, "%d", getpid());
@@ -254,14 +254,14 @@ int main(int argc, char **argv)
 #ifdef __OpenBSD__
     unveil(configs.db_dir, "rwcx");
     unveil(configs.pid_file_path, "rwc");
-    if (configs.electrumd_rpc_listen_ssl) {
-    	unveil(configs.electrumd_rpc_ssl_cert_file, "r");
-    	unveil(configs.electrumd_rpc_ssl_priv_key_file, "r");
+    if (configs.listen_ssl) {
+        unveil(configs.ssl_cert_file, "r");
+        unveil(configs.ssl_priv_key_file, "r");
     }
 
     /*
      * Restrict file system access only to bare minimum fs locations 
-     * needed for electrumd to work properly
+     * needed for electrumsrvd to work properly
      */
     unveil(NULL, NULL);
 
@@ -278,7 +278,7 @@ int main(int argc, char **argv)
         goto shutdown;
     }
 
-    if (!electrumd_running) {
+    if (!is_electrumsrv_running()) {
         goto shutdown;
     }
 
@@ -291,34 +291,34 @@ int main(int argc, char **argv)
 
     SyncThreadCtx sync_thread_ctx;
 
-    electrum_server_init(configs.electrumd_rpc_bind, configs.electrumd_rpc_port, configs.donation_address, configs.banner);
+    electrum_server_init(configs.listen_addr, configs.listen_port, configs.donation_address, configs.banner);
 
     if (sync_thread_start(&sync_thread_ctx, &rpc_ctx, &p2p_ctx, &txdb, &mcp)) {
         ret = EXIT_FAILURE;
         goto shutdown;
     }
 
-    if (configs.electrumd_rpc_listen_ssl)
+    if (configs.listen_ssl)
         ssl_init();
 
     if (electrum_server_start(&mcp, &rpc_ctx, &txdb, &sync_thread_ctx, &configs)) {
         ret = EXIT_FAILURE;
-        electrumd_running = 0;
+        set_electrumsrv_running(0);
     }
 
     sync_thread_stop(&sync_thread_ctx);
 
 shutdown:
-    loginfof("electrumd: flushing txdb: compaction");
+    loginfof("electrumsrvd: flushing txdb: compaction");
     txdb_compact(&txdb);
 
-    loginfof("electrumd: closing txdb");
+    loginfof("electrumsrvd: closing txdb");
     txdb_close(&txdb);
 
-    if (configs.electrumd_rpc_listen_ssl)
+    if (configs.listen_ssl)
         ssl_shutdown();
 
-    loginfof("electrumd: exited");
+    loginfof("electrumsrvd: exited");
     remove(configs.pid_file_path);
     configs_free(&configs);
 

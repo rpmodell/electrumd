@@ -64,7 +64,7 @@
 
 
 /*
- * Electrumd Database (TXDB) Structure Description
+ * Electrumsrvd Database (TXDB) Structure Description
  * 
  * headers.db
  *   - Key: height (4 bytes)

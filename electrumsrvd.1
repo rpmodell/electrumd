@@ -1,56 +1,56 @@
-.TH ELECTRUMD 1 "April 2026" "Electrumd" "Electrumd"
+.TH ELECTRUMSRVD 1 "April 2026" "Electrumsrvd" "Electrumsrvd"
 .SH NAME
-electrumd \- A lightweight Electrum server
+electrumsrvd \- A lightweight Electrum server
 .SH SYNOPSIS
-.B electrumd
+.B electrumsrvd
 [\-c
 .I config_file
 ][\-l
 .I log_level
 ][\-d]
 .SH DESCRIPTION
-.IR electrumd
+.IR electrumsrvd
 is a lightweight Electrum server that provides a simple and efficient way to run your own Electrum node. It offers various options to configure its behavior and operation.
 .SH OPTIONS
 .TP
 .B \-c
 .I config_file
 Specifies the path to the configuration file. The default path is
-.IR /usr/local/etc/electrumd.conf .
+.IR /usr/local/etc/electrumsrvd.conf .
 .TP
 .B \-l
 .I log_level
 Sets the log level for
-.IR electrumd
+.IR electrumsrvd
 . The log level can be one of the following: debug, info, or error.
 .TP
 .B \-d
 Detaches the process and runs
-.IR electrumd
+.IR electrumsrvd
 as a daemon in the background.
 .SH EXAMPLES
 .Start
-.IR electrumd
+.IR electrumsrvd
 with default configuration and log level:
 .sp
 .ft B
-electrumd
+electrumsrvd
 .ft
 .sp
 .Start
-.IR electrumd
+.IR electrumsrvd
 with a custom configuration file and log level set to debug:
 .sp
 .ft B
-electrumd -c /path/to/custom.conf -l debug
+electrumsrvd -c /path/to/custom.conf -l debug
 .ft
 .sp
 .Start
-.IR electrumd
+.IR electrumsrvd
 as a daemon with default configuration:
 .sp
 .ft B
-electrumd -d
+electrumsrvd -d
 .ft
 .SH NOTES
 Requires
@@ -60,24 +60,24 @@ enabled.
 .SH TUNING
 On ZFS file systems, the leveldb database may experiance a write stall if not correctly configured, tehrefore it is reccomended to create a separate zfs dataset:
 .TP
-zfs create <poolname>/electrumd
+zfs create <poolname>/electrumsrvd
 creates the new separate dataset
 
 Once the dataset is created the following configurations are reccomended
 
 .TP
-zfs set atime=off <poolname>/electrumd
+zfs set atime=off <poolname>/electrumsrvd
 Turning	this property off avoids producing write traffic  when reading files and can result in significant performance gains.
 .TP
-zfs set recordsize=8K <poolname>/electrumd
+zfs set recordsize=8K <poolname>/electrumsrvd
 Matches the zfs dataset recordsize value with the 
-.I electrumd
+.I electrumsrvd
 db blocksize
 .TP
-zfs set sync=disabled <poolname>/electrumd
+zfs set sync=disabled <poolname>/electrumsrvd
 File system transactions are only committed to stable storage periodically
 
 .SH AUTHOR
 rpmodell (rpmodell@proton.me)
 .SH SEE ALSO
-.IR electrumd.conf (5)
+.IR electrumsrvd.conf (5)

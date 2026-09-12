@@ -1,24 +1,24 @@
-.TH ELECTRUMD.CONF 5 "April 2026" "electrumd.conf" "Electrumd Configuration File"
+.TH ELECTRUMSRVD.CONF 5 "April 2026" "electrumsrvd.conf" "Electrumsrvd Configuration File"
 .SH NAME
-electrumd.conf \- Configuration file for electrumd
+electrumsrvd.conf \- Configuration file for electrumsrvd
 .SH DESCRIPTION
 The
-.I electrumd.conf
+.I electrumsrvd.conf
 file is used to configure the
-.B electrumd
+.B electrumsrvd
 server, a lightweight Electrum server.
 .SH OPTIONS
 The following options can be set in the
-.I electrumd.conf
+.I electrumsrvd.conf
 file:
 .TP
 .B log_file_path=<custom log path>
 Set a custom path for the log file. Default is
-.I /var/log/electrumd.log
+.I /var/log/electrumsrvd.log
 .TP
 .B pid_file_path=<custom pid path>
 Set a custom path for the PID file. Default is
-.I /var/log/electrumd.pid
+.I /var/log/electrumsrvd.pid
 .TP
 .B db_dir=<db_dir_path>
 Set the directory for the database. This setting is mandatory and does not have a default.
@@ -39,12 +39,12 @@ Bitcoin daemon RPC user and password. Note: the cookie file and password options
 Default bind address and port of Bitcoin daemon RPC. Default is
 .I localhost:8332
 .TP
-.B electrumd_rpc_bind=<host>
-Bind address for electrumd to listen for incoming connections. Default is
+.B listen_addr=<host>
+Bind address for electrumsrvd to listen for incoming connections. Default is
 .I localhost
 .TP
-.B electrumd_rpc_port=<port>
-Bind port for electrumd to listen on.
+.B listen_port=<port>
+Bind port for electrumsrvd to listen on.
 .TP
 .B bitcoind_p2p_addr=<addr>
 Bitcoind P2P address.
@@ -53,21 +53,21 @@ Bitcoind P2P address.
 Bitcoind P2P port.
 .TP
 .B donation_address=<donation_addr>
-Donation address for the electrumd server.
+Donation address for the electrumsrvd server.
 .TP
 .B banner=<banner>
-Banner message for the electrumd server.
+Banner message for the electrumsrvd server.
 .TP
-.B electrumd_rpc_ssl=<yes|no>
-Enable or disable SSL/TLS encryption for the RPC interface. When enabled, the electrumd_rpc_ssl_cert_file 
-and electrumd_rpc_ssl_priv_key_file paths must also be specified.
+.B listen_ssl=<yes|no>
+Enable or disable SSL/TLS encryption for the RPC interface. When enabled, the ssl_cert_file 
+and ssl_priv_key_file paths must also be specified.
 .TP
-.B electrumd_rpc_ssl_cert_file=<ssl_cert_file>
+.B ssl_cert_file=<ssl_cert_file>
 The SSL certificate file path. The certificate file must be in unencrypted PEM format
 .TP
-.B electrumd_rpc_ssl_priv_key_file=<private_key_file>
+.B ssl_priv_key_file=<private_key_file>
 The SSL private key file path. The private key file must be in unencrypted PEM format
 .SH AUTHOR
 rpmodell (rpmodell@proton.me)
 .SH SEE ALSO
-.B electrumd(1)
+.B electrumsrvd(1)
